@@ -78,10 +78,17 @@ def _registrar_manejadores_error(app):
 
     @app.get("/api/salud")
     def salud():
+        from models import Cita
+
+        # Solo el motor y el nombre de la base, nunca la cadena de conexion
+        # completa: esa lleva usuario y contrasena dentro.
+        motor = db.engine.name          # "sqlite" en local, "postgresql" en la nube
         return jsonify({
             "servicio": "AgendaSalud API",
             "estado": "ok",
-            "base_datos": DB_PATH.name,
+            "motor": motor,
+            "base_datos": DB_PATH.name if motor == "sqlite" else db.engine.url.database,
+            "citas": db.session.query(Cita).count(),
         })
 
 
