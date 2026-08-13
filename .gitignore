@@ -15,6 +15,9 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# Paquetes de entrega (se generan a partir del propio repositorio)
+*.zip
+
 # Archivos temporales de Office
 ~$*.docx
 ~$*.xlsx
