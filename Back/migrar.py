@@ -291,6 +291,20 @@ def verificar(ruta_origen, url_dest):
         ).all()
         for estado, cantidad in filas or [("(sin citas)", 0)]:
             print(f"    {estado:<14}: {cantidad}")
+
+        # Con que cuentas se puede entrar a la app desplegada. Si esta lista sale
+        # vacia, el login respondera 401 por mucho que la conexion funcione.
+        usuarios = METADATA.tables["usuarios"]
+        print("-" * 62)
+        print("  Cuentas de acceso en la nube:")
+        cuentas = con_destino.execute(
+            select(usuarios.c.email, usuarios.c.rol, usuarios.c.activo).order_by(usuarios.c.email)
+        ).all()
+        if not cuentas:
+            print("    (ninguna) -> el login va a devolver 401. Falta migrar.")
+        for email, rol, activo in cuentas:
+            estado = "activa" if activo else "DESACTIVADA"
+            print(f"    {email:<36} {rol:<12} {estado}")
     print("=" * 62)
 
 
