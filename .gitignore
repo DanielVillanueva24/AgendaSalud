@@ -15,8 +15,9 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# Paquetes de entrega (se generan a partir del propio repositorio)
+# Entregables y paquetes de entrega: son documentos del curso, no codigo
 *.zip
+EntregablesDocx/
 
 # Archivos temporales de Office
 ~$*.docx
