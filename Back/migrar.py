@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine, func, insert, select
+from sqlalchemy.exc import OperationalError
 
 # Permite ejecutar `python migrar.py` desde cualquier carpeta
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -118,6 +119,19 @@ def url_destino(argumento):
         )
     if url.startswith("sqlite"):
         salir("La URL de destino apunta a SQLite. Se esperaba una base PostgreSQL.")
+
+    # Render publica dos URLs. La *Internal* (host sin dominio, del estilo
+    # `dpg-xxxx-a`) solo resuelve dentro de su red privada: es la que va en el
+    # Web Service, pero desde un equipo de casa no se puede alcanzar. Para
+    # migrar hace falta la *External*, que termina en `-postgres.render.com`.
+    host = url.split("@", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    if host.startswith("dpg-") and "." not in host:
+        salir(
+            "Esa es la Internal Database URL de Render y solo funciona dentro de su red.\n"
+            "  Desde tu equipo hay que usar la External Database URL: mismo usuario y\n"
+            "  contrasena, pero el host termina en `-postgres.render.com`.\n"
+            "  Render > la base de datos > Connections > External Database URL."
+        )
     return url
 
 
@@ -330,6 +344,14 @@ def main():
         if "psycopg2" in str(err):
             salir("Falta el conector de PostgreSQL. Instalalo con:\n  pip install psycopg2-binary")
         raise
+    except OperationalError as err:
+        detalle = str(err.orig).strip() if err.orig else str(err)
+        salir(
+            f"No se pudo conectar con la base de destino:\n  {detalle}\n\n"
+            "  Revisa que sea la External Database URL (no la Internal), que la base\n"
+            "  siga viva en Render y, si el fallo menciona SSL, agrega `?sslmode=require`\n"
+            "  al final de la URL."
+        )
 
 
 if __name__ == "__main__":
