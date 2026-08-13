@@ -322,6 +322,61 @@ def verificar(ruta_origen, url_dest):
     print("=" * 62)
 
 
+def probar_login(url_dest, email):
+    """
+    Repite contra la base de destino exactamente la comprobacion que hace
+    /api/auth/login, pero sin la aplicacion de por medio.
+
+    Sirve para separar dos fallos que dan el mismo 401 en pantalla: que los
+    datos no esten en la nube, o que la app desplegada este leyendo otra base.
+    """
+    from getpass import getpass
+
+    from werkzeug.security import check_password_hash
+
+    motor = create_engine(url_dest, pool_pre_ping=True)
+    usuarios = METADATA.tables["usuarios"]
+    email = email.strip().lower()
+
+    print("=" * 62)
+    print("  AgendaSalud - prueba de credenciales contra la nube")
+    print("=" * 62)
+    print(f"  Destino : {censurar(url_dest)}")
+    print(f"  Email   : {email}")
+    print("-" * 62)
+
+    with motor.connect() as con:
+        fila = con.execute(
+            select(usuarios.c.email, usuarios.c.password_hash, usuarios.c.rol, usuarios.c.activo)
+            .where(func.lower(usuarios.c.email) == email)
+        ).first()
+
+        if fila is None:
+            total = con.execute(select(func.count()).select_from(usuarios)).scalar_one()
+            print(f"  RESULTADO: ese email no existe en esta base ({total} usuarios en total).")
+            print("  El login respondera 'Email o contrasena incorrectos'.")
+            if total == 0:
+                print("  La tabla esta vacia: falta ejecutar `python migrar.py`.")
+            else:
+                print("  Cuentas disponibles aqui:")
+                for (otro,) in con.execute(select(usuarios.c.email).order_by(usuarios.c.email)):
+                    print(f"    {otro}")
+            print("=" * 62)
+            return
+
+    password = getpass("  Contrasena (no se muestra): ")
+    print("-" * 62)
+    if not check_password_hash(fila.password_hash, password):
+        print("  RESULTADO: el usuario existe, pero la contrasena NO coincide.")
+    elif not fila.activo:
+        print("  RESULTADO: credencial correcta, pero la cuenta esta DESACTIVADA (da 403).")
+    else:
+        print(f"  RESULTADO: credencial CORRECTA en esta base (rol: {fila.rol}).")
+        print("  Si aun asi la app da 401, es que esta leyendo una base distinta:")
+        print("  compara esta URL con la DATABASE_URL del Web Service en Render.")
+    print("=" * 62)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Copia los datos de la base SQLite local a PostgreSQL sin duplicar."
@@ -330,13 +385,18 @@ def main():
     parser.add_argument("--destino", help="URL de PostgreSQL (por defecto: variable DATABASE_URL)")
     parser.add_argument("--simular", action="store_true", help="Ensayo: no escribe en el destino")
     parser.add_argument("--verificar", action="store_true", help="Solo muestra los recuentos de ambas bases")
+    parser.add_argument("--probar-login", metavar="EMAIL",
+                        help="Comprueba una credencial contra la base de destino, sin usar la app")
     args = parser.parse_args()
 
-    origen = ruta_sqlite(args.sqlite)
     destino = url_destino(args.destino)
+    # Probar una credencial no necesita la base local
+    origen = None if args.probar_login else ruta_sqlite(args.sqlite)
 
     try:
-        if args.verificar:
+        if args.probar_login:
+            probar_login(destino, args.probar_login)
+        elif args.verificar:
             verificar(origen, destino)
         else:
             migrar(origen, destino, simular=args.simular)
