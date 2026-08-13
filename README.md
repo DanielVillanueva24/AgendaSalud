@@ -120,8 +120,16 @@ Evolución pedida en la retroalimentación:
 
 1. Subir el proyecto a GitHub.
 2. En Render: **New → Web Service** y conectar el repositorio.
-3. Root Directory: `Back` · Build: `pip install -r requirements.txt` · Start: `gunicorn app:app`.
-   - Si Render no detecta el puerto, usar `gunicorn --bind 0.0.0.0:$PORT app:app`: por defecto gunicorn escucha en `127.0.0.1:8000`, donde la plataforma no puede alcanzarlo.
+3. Build y arranque. El backend vive en `Back/`, no en la raíz, así que hay dos formas válidas:
+
+   | | Root Directory | Build Command | Start Command |
+   |---|---|---|---|
+   | **A (recomendada)** | `Back` | `pip install -r requirements.txt` | `gunicorn --bind 0.0.0.0:$PORT app:app` |
+   | **B (sin tocar Root Directory)** | *(vacío)* | `pip install -r requirements.txt` | `gunicorn --chdir Back --bind 0.0.0.0:$PORT app:app` |
+
+   La opción B funciona porque en la raíz hay un `requirements.txt` que reenvía a `Back/requirements.txt` y un `Procfile` que entra en `Back/`.
+
+   El `--bind` importa: por defecto gunicorn escucha en `127.0.0.1:8000`, donde la plataforma no puede alcanzarlo, y el deploy se queda colgado en el health check.
 4. **New → PostgreSQL** para crear la base gratuita; copiar su `DATABASE_URL`.
 5. En el Web Service, agregar las variables de entorno (`DATABASE_URL`, `SECRET_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`).
 6. Nota de código: si `DATABASE_URL` empieza con `postgres://`, reemplazarlo por `postgresql://` para SQLAlchemy.

@@ -1,0 +1,4 @@
+# El backend vive en Back/. Este archivo existe para que la plataforma de
+# despliegue encuentre las dependencias aunque construya desde la raiz del
+# repositorio (es decir, sin definir Root Directory = Back).
+-r Back/requirements.txt
