@@ -1,4 +1,16 @@
-# Base de datos SQLite (se regenera con seed.py)
+# Secretos: variables de entorno, credenciales y certificados.
+# NUNCA se versionan. La plantilla sin valores es .env.example
+.env
+.env.*
+!.env.example
+*.env
+secrets.json
+credenciales*.json
+*.pem
+*.key
+
+# Base de datos SQLite: contiene datos de pacientes y hashes de contrasenas
+# (se regenera con seed.py)
 *.db
 *.db-journal
 *.sqlite3
@@ -29,7 +41,10 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
-# Editores
+# Editores y herramientas locales
 .vscode/
 .idea/
 *.swp
+
+# Registros
+*.log

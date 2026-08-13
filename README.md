@@ -15,16 +15,27 @@ Sistema web para gestionar el agendamiento de citas en consultorios pequeños: r
 
 ## Variables de entorno
 
-Nunca se escriben en el código ni se suben a GitHub. Se configuran localmente o en el panel de la plataforma de despliegue.
+Toda la configuración sensible vive en variables de entorno: **ningún valor real aparece en el código ni en el repositorio**. La lista completa, con descripción y sin valores, está en [`.env.example`](.env.example).
 
-```
-DATABASE_URL=postgresql://usuario:clave@host:5432/agendasalud   # en local puede omitirse (usa SQLite)
-SECRET_KEY=una-clave-larga-y-aleatoria
-MAIL_USERNAME=citas.tuconsultorio@gmail.com
-MAIL_PASSWORD=xxxxxxxxxxxxxxxx                                   # contraseña de aplicación de Gmail (16 caracteres)
-```
+| Variable | Obligatoria | Para qué sirve |
+|---|---|---|
+| `DATABASE_URL` | En producción | Conexión a PostgreSQL. Si falta, la app usa SQLite local |
+| `SECRET_KEY` | En producción | Firma las cookies de sesión |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | No | Cuenta de Gmail y contraseña de aplicación (16 caracteres) |
+| `MAIL_DEFAULT_SENDER` | No | Remitente, si difiere de `MAIL_USERNAME` |
+| `RECORDATORIO_HORA` / `RECORDATORIO_MINUTO` | No | Hora de la tarea diaria (18:00 por defecto) |
+| `RECORDATORIOS_ACTIVOS=0` | No | Desactiva la tarea programada |
 
-Opcionales: `RECORDATORIO_HORA` / `RECORDATORIO_MINUTO` (hora de la tarea diaria, 18:00 por defecto), `RECORDATORIOS_ACTIVOS=0` (desactiva la tarea) y `MAIL_DEFAULT_SENDER` (remitente si difiere de `MAIL_USERNAME`). Sin ninguna de ellas la aplicación arranca con SQLite y el correo en modo simulado.
+Sin ninguna de ellas la aplicación arranca igual: SQLite local y correo en modo simulado.
+
+**Uso:**
+
+- **Local:** `cp .env.example .env` y rellenar. `.env` está en `.gitignore`.
+- **Render:** Dashboard → el servicio → *Environment*.
+
+> **Nunca** se pegan valores reales en el código, en el README, en un commit ni en un chat. La `DATABASE_URL` de Render y la contraseña de aplicación de Gmail son credenciales completas: quien las tenga entra a la base de datos y a la cuenta de correo. Si alguna llega a subirse por error, hay que rotarla (regenerar la contraseña de aplicación en Gmail, recrear la base en Render), no solo borrar el commit.
+>
+> Si `SECRET_KEY` no está definida en un despliegue con `DATABASE_URL`, la aplicación genera una clave aleatoria en cada arranque y lo avisa en el log: nunca cae en una clave fija publicada en el repositorio.
 
 ## Estructura del proyecto
 
@@ -40,6 +51,7 @@ AgendaSalud/
 │   ├── security.py       # sesión, decoradores de rol y acotamiento por agenda
 │   ├── utils.py          # ErrorAPI y validación de entradas
 │   ├── seed.py           # datos de demostración
+│   ├── migrar.py         # copia los datos de SQLite local a PostgreSQL (nube)
 │   ├── test_agendasalud.py   # 84 pruebas automatizadas
 │   ├── routes/           # blueprints: auth, usuarios, pacientes, profesionales, citas, indicadores
 │   ├── Procfile          # arranque en producción: gunicorn
@@ -48,6 +60,7 @@ AgendaSalud/
 │   ├── index.html        # aplicación de página única con FullCalendar
 │   ├── css/ · js/        # interfaz y cliente de la API
 │   └── vendor/           # FullCalendar y Chart.js incluidos (funciona sin internet)
+├── .env.example          # plantilla de variables de entorno (sin valores)
 ├── .gitignore
 └── README.md
 ```
@@ -73,7 +86,10 @@ python seed.py                        # carga datos de demostración
 flask --app app init-db               # crea las tablas vacías
 flask --app app recordatorios         # envía ahora los recordatorios de mañana
 python test_agendasalud.py            # 84 pruebas
+python migrar.py --verificar          # compara la base local con la de la nube
 ```
+
+La base local es `agendasalud.db` **en la raíz del proyecto** (no dentro de `Back/`): la ruta la define `DB_PATH` en `Back/config.py`.
 
 ## Modelo de datos
 
@@ -136,6 +152,29 @@ Evolución pedida en la retroalimentación:
 
 Render entrega una URL con HTTPS automático. Los datos persisten en PostgreSQL (no en el contenedor).
 
+## Migrar los datos locales a la nube
+
+La base PostgreSQL de Render nace vacía. `Back/migrar.py` copia a la nube lo que ya hay en la base SQLite local (profesionales, usuarios, pacientes, horarios y citas).
+
+- **No duplica:** cada fila se identifica por una clave natural (email del usuario, documento del paciente, la terna profesional + paciente + hora de inicio de la cita), no por su `id`. Se puede ejecutar las veces que haga falta; lo que ya está, se salta.
+- **No copia los `id`:** PostgreSQL asigna los suyos y el script traduce las claves foráneas sobre la marcha, así que las secuencias de la base destino quedan sanas.
+- **Todo o nada:** la carga corre dentro de una única transacción.
+
+```bash
+cd Back
+pip install psycopg2-binary                  # conector de PostgreSQL, si falta
+
+export DATABASE_URL="<External Database URL de Render>"   # PowerShell: $env:DATABASE_URL="..."
+
+python migrar.py --verificar                 # 1. recuento a ambos lados
+python migrar.py --simular                   # 2. ensayo, no escribe nada
+python migrar.py                             # 3. migración real
+```
+
+Opciones: `--sqlite RUTA` (otra base de origen) y `--destino URL` (destino sin usar `DATABASE_URL`).
+
+Hay que usar la **External** Database URL de Render (la Internal solo funciona dentro de su red). El script imprime la URL con la contraseña censurada, para que se pueda pegar la salida en un informe sin filtrarla.
+
 ## Roles y permisos
 
 El campo `rol` de `Usuario` define el acceso (principio de menor privilegio):
@@ -149,6 +188,14 @@ El campo `rol` de `Usuario` define el acceso (principio de menor privilegio):
 | Profesionales | Solo consultar | Solo su perfil | Crear, editar, eliminar |
 | Indicadores | Ocupación de la agenda | Sus propias métricas | Global |
 | Usuarios / configuración | Sin acceso | Sin acceso | Gestiona usuarios y roles |
+
+## Seguridad
+
+- **Sin secretos en el repositorio.** Credenciales, cadenas de conexión y claves se leen del entorno; el repositorio solo guarda la plantilla `.env.example` con los nombres. `.gitignore` bloquea `.env`, `*.db`, `*.pem` y `*.key`.
+- **Contraseñas hasheadas** con Werkzeug (`generate_password_hash`); nunca se guardan ni se devuelven en claro.
+- **Sesiones** con cookie `HttpOnly` y `SameSite=Lax`, caducidad de 8 horas y clave de firma tomada del entorno.
+- **Control de acceso por rol** en cada endpoint (`Back/security.py`), con principio de menor privilegio.
+- **La base local `agendasalud.db` no se versiona:** contiene datos de pacientes y hashes de contraseñas.
 
 ## Convención de commits
 

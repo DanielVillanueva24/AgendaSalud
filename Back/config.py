@@ -1,5 +1,12 @@
-"""Configuracion de la aplicacion AgendaSalud."""
+"""Configuracion de la aplicacion AgendaSalud.
+
+Todos los datos sensibles (cadena de conexion, clave de firma, credenciales de
+correo) se leen de variables de entorno. Ninguno se escribe en el codigo ni se
+versiona: ver `.env.example` para la lista completa.
+"""
+import logging
 import os
+import secrets
 from pathlib import Path
 
 # Raiz del proyecto (carpeta que contiene Back/ y Front/)
@@ -27,14 +34,36 @@ def uri_base_datos():
     return url
 
 
+def clave_secreta():
+    """
+    Clave con la que se firman las cookies de sesion.
+
+    En un despliegue real tiene que venir del entorno. Si falta, se genera una
+    aleatoria en cada arranque en vez de recurrir a un valor fijo escrito en el
+    repositorio: quien lea el codigo publico no puede falsificar sesiones. El
+    precio es que reiniciar el servicio cierra las sesiones abiertas, que es
+    justamente la senal de que falta definir SECRET_KEY en la plataforma.
+
+    En local (sin DATABASE_URL) se usa una clave de desarrollo estable para no
+    tener que volver a entrar despues de cada recarga del servidor.
+    """
+    # AGENDASALUD_SECRET_KEY es un alias antiguo; se mantiene por compatibilidad
+    clave = os.environ.get("SECRET_KEY") or os.environ.get("AGENDASALUD_SECRET_KEY")
+    if clave:
+        return clave
+
+    if os.environ.get("DATABASE_URL", "").strip():
+        logging.getLogger("agendasalud").warning(
+            "SECRET_KEY no esta definida: se usa una clave temporal distinta en cada "
+            "arranque. Definela en las variables de entorno del servicio."
+        )
+        return secrets.token_hex(32)
+
+    return "dev-local-agendasalud"
+
+
 class Config:
-    # SECRET_KEY es el nombre que documenta el README; se mantiene el alias
-    # AGENDASALUD_SECRET_KEY por compatibilidad con despliegues anteriores.
-    SECRET_KEY = (
-        os.environ.get("SECRET_KEY")
-        or os.environ.get("AGENDASALUD_SECRET_KEY")
-        or "dev-agendasalud-cap499-cambiar-en-produccion"
-    )
+    SECRET_KEY = clave_secreta()
 
     SQLALCHEMY_DATABASE_URI = uri_base_datos()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
