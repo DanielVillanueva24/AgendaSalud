@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgendaSalud — Gestión de citas</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>">
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+
+<!-- =====================  LOGIN  ===================== -->
+<div id="pantalla-login" class="login-pantalla" hidden>
+  <div class="login-tarjeta">
+    <div class="login-marca">
+      <div class="logo">🩺</div>
+      <h1>AgendaSalud</h1>
+      <p>Gestión de citas y control de ausentismo</p>
+    </div>
+
+    <div id="login-error" class="alerta-inline" hidden></div>
+
+    <form id="form-login" autocomplete="on">
+      <div class="campo">
+        <label for="login-email">Correo electrónico</label>
+        <input type="email" id="login-email" name="email" required autocomplete="username" placeholder="usuario@agendasalud.local">
+      </div>
+      <div class="campo">
+        <label for="login-password">Contraseña</label>
+        <input type="password" id="login-password" name="password" required autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button type="submit" class="btn btn-primario btn-bloque" id="btn-login">Iniciar sesión</button>
+    </form>
+
+    <div class="login-demo">
+      <h4>Cuentas de demostración (clic para usar)</h4>
+      <button type="button" class="credencial" data-email="admin@agendasalud.local" data-password="admin123">
+        <span><strong>Administrador</strong><br>admin@agendasalud.local</span><span>admin123</span>
+      </button>
+      <button type="button" class="credencial" data-email="recepcion@agendasalud.local" data-password="recepcion123">
+        <span><strong>Recepción</strong><br>recepcion@agendasalud.local</span><span>recepcion123</span>
+      </button>
+      <button type="button" class="credencial" data-email="laura.mendoza@agendasalud.local" data-password="profesional123">
+        <span><strong>Profesional</strong><br>laura.mendoza@agendasalud.local</span><span>profesional123</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- =====================  APLICACIÓN  ===================== -->
+<div id="app" class="app" hidden>
+
+  <aside class="sidebar">
+    <div class="sidebar-marca">
+      <span class="logo">🩺</span>
+      <h2>AgendaSalud<span>CAP 499</span></h2>
+    </div>
+
+    <nav class="sidebar-nav" id="nav">
+      <button class="nav-item" data-vista="hoy"><span class="icono">📋</span><span class="texto">Hoy</span></button>
+      <button class="nav-item" data-vista="agenda"><span class="icono">📅</span><span class="texto">Agenda</span></button>
+      <button class="nav-item" data-vista="pacientes"><span class="icono">👥</span><span class="texto">Pacientes</span></button>
+      <button class="nav-item" data-vista="profesionales" data-rol="admin"><span class="icono">🩺</span><span class="texto">Profesionales</span></button>
+      <button class="nav-item" data-vista="indicadores"><span class="icono">📊</span><span class="texto">Indicadores</span></button>
+      <button class="nav-item" data-vista="usuarios" data-rol="admin"><span class="icono">🔐</span><span class="texto">Usuarios</span></button>
+    </nav>
+
+    <div class="sidebar-pie">
+      <div class="usuario-caja">
+        <div class="avatar" id="usuario-avatar">?</div>
+        <div class="usuario-datos">
+          <strong id="usuario-nombre">—</strong>
+          <span id="usuario-rol">—</span>
+        </div>
+      </div>
+      <button class="btn btn-sm btn-bloque" id="btn-logout">Cerrar sesión</button>
+    </div>
+  </aside>
+
+  <main class="contenido">
+    <header class="topbar">
+      <div>
+        <h1 id="vista-titulo">Panel</h1>
+        <p id="vista-subtitulo"></p>
+      </div>
+      <div class="topbar-acciones" id="vista-acciones"></div>
+    </header>
+
+    <!-- ---------- HOY ---------- -->
+    <section class="vista" id="vista-hoy" hidden>
+      <div class="kpis" id="hoy-kpis"></div>
+      <div class="panel">
+        <div class="panel-cabecera">
+          <div>
+            <h3>Agenda del día</h3>
+            <p>Confirma las citas pendientes y registra la asistencia al cerrar la consulta.</p>
+          </div>
+          <div class="filtros">
+            <div class="campo">
+              <label for="hoy-fecha">Fecha</label>
+              <input type="date" id="hoy-fecha">
+            </div>
+          </div>
+        </div>
+        <div class="panel-cuerpo sin-padding tabla-scroll" id="hoy-tabla"></div>
+      </div>
+    </section>
+
+    <!-- ---------- AGENDA / CALENDARIO ---------- -->
+    <section class="vista" id="vista-agenda" hidden>
+      <div class="panel">
+        <div class="panel-cabecera">
+          <div class="filtros">
+            <div class="campo">
+              <label for="filtro-profesional">Profesional</label>
+              <select id="filtro-profesional"><option value="">Todos</option></select>
+            </div>
+            <div class="campo">
+              <label for="filtro-estado">Estado</label>
+              <select id="filtro-estado">
+                <option value="">Todos</option>
+                <option value="activas">Activas (sin canceladas)</option>
+                <option value="pendiente">Pendientes</option>
+                <option value="confirmada">Confirmadas</option>
+                <option value="atendida">Atendidas</option>
+                <option value="no_asistio">No asistió</option>
+                <option value="cancelada">Canceladas</option>
+              </select>
+            </div>
+          </div>
+          <div class="leyenda">
+            <span><i style="background:#fef3c7"></i>Pendiente</span>
+            <span><i style="background:#dbeafe"></i>Confirmada</span>
+            <span><i style="background:#d1fae5"></i>Atendida</span>
+            <span><i style="background:#fee2e2"></i>No asistió</span>
+            <span><i style="background:#e2e8f0"></i>Cancelada</span>
+          </div>
+        </div>
+        <div class="panel-cuerpo sin-padding">
+          <div id="calendario"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- PACIENTES ---------- -->
+    <section class="vista" id="vista-pacientes" hidden>
+      <div class="panel">
+        <div class="panel-cabecera">
+          <div class="filtros">
+            <div class="campo" style="min-width:260px">
+              <label for="buscar-paciente">Buscar</label>
+              <input type="search" id="buscar-paciente" placeholder="Nombre, documento, teléfono o correo…">
+            </div>
+            <label class="check" style="padding-bottom:9px">
+              <input type="checkbox" id="pacientes-inactivos"> Mostrar inactivos
+            </label>
+          </div>
+        </div>
+        <div class="panel-cuerpo sin-padding tabla-scroll" id="pacientes-tabla"></div>
+      </div>
+    </section>
+
+    <!-- ---------- PROFESIONALES ---------- -->
+    <section class="vista" id="vista-profesionales" hidden>
+      <div class="panel">
+        <div class="panel-cabecera">
+          <div>
+            <h3>Profesionales y horarios de atención</h3>
+            <p>La grilla semanal define la capacidad de la agenda y alimenta el motor de optimización.</p>
+          </div>
+        </div>
+        <div class="panel-cuerpo sin-padding tabla-scroll" id="profesionales-tabla"></div>
+      </div>
+    </section>
+
+    <!-- ---------- INDICADORES ---------- -->
+    <section class="vista" id="vista-indicadores" hidden>
+      <div class="panel">
+        <div class="panel-cuerpo">
+          <div class="filtros">
+            <div class="campo">
+              <label for="ind-desde">Desde</label>
+              <input type="date" id="ind-desde">
+            </div>
+            <div class="campo">
+              <label for="ind-hasta">Hasta</label>
+              <input type="date" id="ind-hasta">
+            </div>
+            <div class="campo">
+              <label for="ind-profesional">Profesional</label>
+              <select id="ind-profesional"><option value="">Todos</option></select>
+            </div>
+            <div class="campo">
+              <label for="ind-agrupar">Agrupar serie</label>
+              <select id="ind-agrupar">
+                <option value="dia">Día</option>
+                <option value="semana" selected>Semana</option>
+                <option value="mes">Mes</option>
+              </select>
+            </div>
+            <button class="btn btn-primario" id="btn-aplicar-ind">Aplicar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpis" id="ind-kpis"></div>
+
+      <div id="ind-efecto"></div>
+
+      <div class="graficos">
+        <div class="panel">
+          <div class="panel-cabecera"><h3>Evolución del ausentismo</h3></div>
+          <div class="panel-cuerpo"><div class="grafico-caja"><canvas id="g-serie"></canvas></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-cabecera"><h3>Distribución por estado</h3></div>
+          <div class="panel-cuerpo"><div class="grafico-caja"><canvas id="g-estados"></canvas></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-cabecera"><h3>Ausentismo por día de la semana</h3></div>
+          <div class="panel-cuerpo"><div class="grafico-caja"><canvas id="g-dias"></canvas></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-cabecera"><h3>Ausentismo por franja horaria</h3></div>
+          <div class="panel-cuerpo"><div class="grafico-caja"><canvas id="g-horas"></canvas></div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-cabecera"><h3>Desempeño por profesional</h3></div>
+        <div class="panel-cuerpo sin-padding tabla-scroll" id="ind-profesionales"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-cabecera">
+          <div>
+            <h3>Pacientes con mayor riesgo de inasistencia</h3>
+            <p>Candidatos a recordatorio telefónico reforzado antes de la cita.</p>
+          </div>
+        </div>
+        <div class="panel-cuerpo sin-padding tabla-scroll" id="ind-riesgo"></div>
+      </div>
+    </section>
+
+    <!-- ---------- USUARIOS ---------- -->
+    <section class="vista" id="vista-usuarios" hidden>
+      <div class="panel">
+        <div class="panel-cabecera">
+          <div>
+            <h3>Usuarios del sistema</h3>
+            <p>Control de acceso por rol: administrador, recepción y profesional.</p>
+          </div>
+        </div>
+        <div class="panel-cuerpo sin-padding tabla-scroll" id="usuarios-tabla"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="avisos" id="avisos"></div>
+<div id="modales"></div>
+
+<script src="vendor/fullcalendar.min.js"></script>
+<script src="vendor/fullcalendar-es.js"></script>
+<script src="vendor/chart.umd.min.js"></script>
+
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/pacientes.js"></script>
+<script src="js/profesionales.js"></script>
+<script src="js/citas.js"></script>
+<script src="js/reacomodo.js"></script>
+<script src="js/calendario.js"></script>
+<script src="js/hoy.js"></script>
+<script src="js/indicadores.js"></script>
+<script src="js/usuarios.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

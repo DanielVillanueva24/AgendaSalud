@@ -1,0 +1,12 @@
+Flask==3.1.0
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.36
+Werkzeug==3.1.3
+
+# Notificaciones por correo y recordatorios programados
+Flask-Mail==0.10.0
+APScheduler==3.11.0
+
+# Produccion: servidor WSGI y conector de PostgreSQL
+gunicorn==23.0.0
+psycopg2-binary==2.9.10

@@ -1,0 +1,31 @@
+# Base de datos SQLite (se regenera con seed.py)
+*.db
+*.db-journal
+*.sqlite3
+
+# Entorno virtual de Python
+Back/venv/
+venv/
+env/
+.venv/
+
+# Bytecode y cachés de Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Archivos temporales de Office
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# Sistema operativo
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+*.swp
