@@ -52,8 +52,49 @@ def create_app(config_object=Config):
 
     with app.app_context():
         db.create_all()
+        _diagnostico_arranque(app)
 
     return app
+
+
+def _diagnostico_arranque(app):
+    """
+    Deja en el log contra que base de datos quedo conectada la aplicacion.
+
+    Sin esto, una plataforma mal configurada arranca sin ninguna queja: si falta
+    DATABASE_URL la app cae al SQLite del contenedor, que esta vacio y se pierde
+    en cada despliegue. Todo parece correcto hasta que el login responde 401
+    porque no hay ni un usuario contra el que validar. Nunca se escribe la
+    cadena de conexion completa: lleva la contrasena dentro.
+    """
+    if app.config.get("TESTING"):
+        return
+
+    from models import Cita, Usuario
+
+    try:
+        motor = db.engine.name
+        nombre = db.engine.url.database
+        usuarios = db.session.query(Usuario).count()
+        citas = db.session.query(Cita).count()
+    except Exception:
+        app.logger.exception("No se pudo consultar la base de datos al arrancar")
+        return
+
+    app.logger.info("Base de datos: %s (%s) | usuarios: %d | citas: %d",
+                    motor, nombre, usuarios, citas)
+
+    if motor == "sqlite" and os.environ.get("RENDER"):
+        app.logger.error(
+            "DATABASE_URL no esta definida en este servicio: se esta usando un SQLite "
+            "dentro del contenedor, que se borra en cada despliegue. Definela en "
+            "Render > el Web Service > Environment (no basta con que exista la base de datos)."
+        )
+    elif usuarios == 0:
+        app.logger.warning(
+            "La base no tiene ningun usuario: el login respondera 401 con "
+            "'Email o contrasena incorrectos'. Falta cargar los datos (migrar.py o seed.py)."
+        )
 
 
 def _registrar_manejadores_error(app):
