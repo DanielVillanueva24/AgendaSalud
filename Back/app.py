@@ -130,6 +130,9 @@ def _registrar_manejadores_error(app):
             "motor": motor,
             "base_datos": DB_PATH.name if motor == "sqlite" else db.engine.url.database,
             "citas": db.session.query(Cita).count(),
+            # Solo si hay credenciales de correo cargadas, nunca cuales son:
+            # sin esto la unica forma de saberlo es leer los logs del servidor.
+            "notificaciones": bool(app.config.get("NOTIFICACIONES_ACTIVAS")),
         })
 
 
