@@ -21,8 +21,9 @@ Toda la configuración sensible vive en variables de entorno: **ningún valor re
 |---|---|---|
 | `DATABASE_URL` | En producción | Conexión a PostgreSQL. Si falta, la app usa SQLite local |
 | `SECRET_KEY` | En producción | Firma las cookies de sesión |
-| `MAIL_USERNAME` / `MAIL_PASSWORD` | No | Cuenta de Gmail y contraseña de aplicación (16 caracteres) |
-| `MAIL_DEFAULT_SENDER` | No | Remitente, si difiere de `MAIL_USERNAME` |
+| `BREVO_API_KEY` | Para el correo en la nube | Envío por HTTPS (ver Notificaciones) |
+| `MAIL_DEFAULT_SENDER` | Con Brevo | Remitente verificado que ve el paciente |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | No | Gmail y contraseña de aplicación, para SMTP en local |
 | `RECORDATORIO_HORA` / `RECORDATORIO_MINUTO` | No | Hora de la tarea diaria (18:00 por defecto) |
 | `RECORDATORIOS_ACTIVOS=0` | No | Desactiva la tarea programada |
 
@@ -124,8 +125,18 @@ Evolución pedida en la retroalimentación:
 
 ## Notificaciones automáticas (Gmail)
 
-- Se usa **Flask-Mail** sobre el SMTP de Gmail (`smtp.gmail.com`, puerto 587, TLS).
-- Autenticación con una **contraseña de aplicación** de Gmail (requiere verificación en dos pasos), guardada en `MAIL_PASSWORD`.
+Hay **dos vías de envío** y se usa la primera que esté configurada:
+
+| Vía | Variables | Dónde sirve |
+|---|---|---|
+| **Brevo sobre HTTPS** | `BREVO_API_KEY` + `MAIL_DEFAULT_SENDER` | **La nube.** Puerto 443 |
+| **SMTP de Gmail** | `MAIL_USERNAME` + `MAIL_PASSWORD` | Local. Puerto 587 |
+
+> ⚠️ En la nube hay que usar Brevo. Los planes gratuitos de Render (y de la mayoría de PaaS) **bloquean las conexiones salientes a los puertos de SMTP**: el envío falla con `OSError: [Errno 101] Network is unreachable` al abrir el socket, aunque las credenciales de Gmail sean correctas. No se arregla con configuración, porque el paquete no llega a salir de la máquina.
+
+- **Flask-Mail** sobre `smtp.gmail.com:587` con TLS para la vía SMTP, autenticado con una **contraseña de aplicación** de Gmail (requiere verificación en dos pasos), guardada en `MAIL_PASSWORD`.
+- La vía Brevo usa `urllib` de la biblioteca estándar: no añade dependencias.
+- `GET /api/salud` indica en `notificaciones` si hay alguna vía activa.
 - **Correo de confirmación:** al crear o confirmar una cita.
 - **Recordatorio automático:** una tarea diaria con **APScheduler** (18:00 por defecto, ajustable con `RECORDATORIO_HORA`) busca las citas del día siguiente y envía un correo a cada paciente. Se puede lanzar a mano con `flask --app app recordatorios`.
 - **Prioridad por historial:** los recordatorios se recorren de mayor a menor tasa de ausentismo del paciente, de modo que quien más ha faltado se contacta primero.

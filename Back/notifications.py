@@ -19,14 +19,19 @@ Configuracion (variables de entorno, nunca en el codigo):
     MAIL_PASSWORD   contrasena de aplicacion de 16 caracteres
 """
 import atexit
+import json
 import logging
 import os
 import threading
+import urllib.error
+import urllib.request
 from datetime import date, datetime, time, timedelta
 
 from flask import current_app
 
 logger = logging.getLogger("agendasalud.notificaciones")
+
+_BREVO_URL = "https://api.brevo.com/v3/smtp/email"
 
 # Flask-Mail y APScheduler son opcionales: sin ellos la app arranca igual y
 # los correos quedan en el log (modo simulado).
@@ -59,7 +64,7 @@ def init_app(app):
     """Conecta Flask-Mail y deja lista la tarea de recordatorios."""
     if mail is not None:
         mail.init_app(app)
-    elif app.config.get("NOTIFICACIONES_ACTIVAS"):
+    elif app.config.get("NOTIFICACIONES_ACTIVAS") and not app.config.get("BREVO_API_KEY"):
         logger.warning(
             "Hay credenciales de correo pero Flask-Mail no esta instalado; "
             "ejecuta: pip install -r requirements.txt"
@@ -67,10 +72,14 @@ def init_app(app):
 
     if app.config.get("TESTING"):
         pass                                     # en pruebas se levanta una app por caso
+    elif app.config.get("BREVO_API_KEY"):
+        logger.info("Notificaciones por correo activas via Brevo (remitente: %s)",
+                    app.config.get("MAIL_DEFAULT_SENDER"))
     elif app.config.get("NOTIFICACIONES_ACTIVAS"):
-        logger.info("Notificaciones por correo activas (%s)", app.config.get("MAIL_USERNAME"))
+        logger.info("Notificaciones por correo activas via SMTP (%s)", app.config.get("MAIL_USERNAME"))
     else:
-        logger.info("Notificaciones en modo simulado: define MAIL_USERNAME y MAIL_PASSWORD para enviar")
+        logger.info("Notificaciones en modo simulado: define BREVO_API_KEY (nube) "
+                    "o MAIL_USERNAME y MAIL_PASSWORD (local) para enviar")
 
     # La tarea diaria no se arranca aqui: quien crea la app no sabe todavia si
     # este proceso es el definitivo o el padre del recargador. Lo decide app.py.
@@ -84,8 +93,70 @@ def _enviar(app, destinatario, asunto, cuerpo):
         return ERROR
 
     # En pruebas y sin credenciales no se toca la red
-    if app.config.get("TESTING") or not app.config.get("NOTIFICACIONES_ACTIVAS") or mail is None:
+    if app.config.get("TESTING") or not app.config.get("NOTIFICACIONES_ACTIVAS"):
         logger.info("[correo simulado] para=%s asunto=%s", destinatario, asunto)
+        return SIMULADO
+
+    if app.config.get("BREVO_API_KEY"):
+        return _enviar_por_brevo(app, destinatario, asunto, cuerpo)
+    return _enviar_por_smtp(app, destinatario, asunto, cuerpo)
+
+
+def _enviar_por_brevo(app, destinatario, asunto, cuerpo):
+    """
+    Envio por la API HTTPS de Brevo.
+
+    Es la via que funciona en la nube: los planes gratuitos suelen bloquear las
+    conexiones salientes a los puertos de SMTP, y el 443 no. Se usa urllib de la
+    biblioteca estandar para no anadir dependencias.
+    """
+    remitente = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
+    if not remitente:
+        logger.error("BREVO_API_KEY definida pero falta MAIL_DEFAULT_SENDER (remitente)")
+        return ERROR
+
+    carga = json.dumps({
+        "sender": {"email": remitente, "name": app.config.get("MAIL_SENDER_NAME", "AgendaSalud")},
+        "to": [{"email": destinatario}],
+        "subject": asunto,
+        "textContent": cuerpo,
+    }).encode("utf-8")
+
+    peticion = urllib.request.Request(
+        _BREVO_URL,
+        data=carga,
+        method="POST",
+        headers={
+            "api-key": app.config["BREVO_API_KEY"],
+            "content-type": "application/json",
+            "accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(peticion, timeout=20) as respuesta:
+            respuesta.read()
+        logger.info("Correo enviado a %s via Brevo (%s)", destinatario, asunto)
+        return ENVIADO
+    except urllib.error.HTTPError as err:
+        # Brevo explica el motivo en el cuerpo: remitente sin verificar, clave
+        # invalida, cuota agotada... Sin esto solo se veria "HTTP Error 400".
+        try:
+            detalle = err.read().decode("utf-8", "replace")[:400]
+        except Exception:
+            detalle = ""
+        logger.error("Brevo rechazo el correo a %s: HTTP %s %s",
+                     destinatario, err.code, detalle)
+        return ERROR
+    except Exception:
+        logger.exception("No se pudo enviar el correo a %s via Brevo", destinatario)
+        return ERROR
+
+
+def _enviar_por_smtp(app, destinatario, asunto, cuerpo):
+    """Envio por SMTP con Flask-Mail. Funciona en local; en la nube suele estar bloqueado."""
+    if mail is None:
+        logger.info("[correo simulado] Flask-Mail no esta instalado; para=%s", destinatario)
         return SIMULADO
 
     try:
@@ -99,6 +170,16 @@ def _enviar(app, destinatario, asunto, cuerpo):
             mail.send(mensaje)
         logger.info("Correo enviado a %s (%s)", destinatario, asunto)
         return ENVIADO
+    except OSError as err:
+        # "Network is unreachable" al abrir el socket: el servidor no deja salir
+        # trafico SMTP. No es un problema de credenciales y no se arregla con
+        # configuracion; hay que enviar por HTTPS (BREVO_API_KEY).
+        logger.error(
+            "No se pudo abrir la conexion SMTP con %s:%s (%s). Si esto ocurre en la "
+            "nube, el proveedor bloquea el puerto: define BREVO_API_KEY para enviar por HTTPS.",
+            app.config.get("MAIL_SERVER"), app.config.get("MAIL_PORT"), err,
+        )
+        return ERROR
     except Exception:
         # Un fallo de SMTP no puede tumbar la peticion que agendo la cita
         logger.exception("No se pudo enviar el correo a %s", destinatario)
@@ -112,7 +193,7 @@ def _enviar_en_segundo_plano(app, destinatario, asunto, cuerpo):
     Al hilo solo se le pasan cadenas ya extraidas: nunca objetos del ORM, que
     quedarian ligados a la sesion de otro hilo.
     """
-    if app.config.get("TESTING") or not app.config.get("NOTIFICACIONES_ACTIVAS") or mail is None:
+    if app.config.get("TESTING") or not app.config.get("NOTIFICACIONES_ACTIVAS"):
         return _enviar(app, destinatario, asunto, cuerpo)
 
     threading.Thread(

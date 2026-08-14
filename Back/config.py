@@ -81,7 +81,15 @@ class Config:
     GRANULARIDAD_SLOT = 15          # minutos entre inicios candidatos
     ANTICIPACION_MINIMA_MIN = 0     # minutos minimos para agendar a futuro
 
-    # --- Notificaciones por correo (Flask-Mail sobre el SMTP de Gmail) --------
+    # --- Notificaciones por correo -------------------------------------------
+    # Hay dos vias de envio y se elige la primera disponible:
+    #
+    #   1. Brevo sobre HTTPS (BREVO_API_KEY). Es la que funciona en la nube:
+    #      muchos planes gratuitos bloquean las conexiones salientes a los
+    #      puertos de SMTP, y entonces Gmail falla con "Network is unreachable"
+    #      sin que las credenciales tengan nada que ver.
+    #   2. SMTP de Gmail (MAIL_USERNAME + MAIL_PASSWORD), util en local.
+    #
     # MAIL_PASSWORD debe ser una *contrasena de aplicacion* de Gmail (16
     # caracteres, requiere verificacion en dos pasos). Nunca va en el codigo.
     MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
@@ -92,9 +100,16 @@ class Config:
     MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
     MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER") or os.environ.get("MAIL_USERNAME")
 
+    # Remitente que ve el paciente. Con Brevo tiene que ser una direccion
+    # verificada en la cuenta (Senders & IP > Senders).
+    MAIL_SENDER_NAME = os.environ.get("MAIL_SENDER_NAME", "AgendaSalud")
+    BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "").strip()
+
     # Sin credenciales la app funciona igual: el correo no se envia, se
-    # escribe en el log. La agenda nunca depende de que el SMTP responda.
-    NOTIFICACIONES_ACTIVAS = bool(MAIL_USERNAME and MAIL_PASSWORD)
+    # escribe en el log. La agenda nunca depende de que el correo responda.
+    NOTIFICACIONES_ACTIVAS = bool(
+        (BREVO_API_KEY and MAIL_DEFAULT_SENDER) or (MAIL_USERNAME and MAIL_PASSWORD)
+    )
 
     # --- Recordatorio diario (APScheduler) ------------------------------------
     RECORDATORIOS_ACTIVOS = _bandera("RECORDATORIOS_ACTIVOS")
