@@ -19,6 +19,29 @@ def _bandera(nombre, defecto="1"):
     return os.environ.get(nombre, defecto).strip().lower() not in ("0", "false", "no", "")
 
 
+def opciones_motor():
+    """
+    Ajustes del pool de conexiones, distintos segun el motor.
+
+    Con SQLite (local) las conexiones se comparten entre los hilos del servidor:
+    hay que desactivar `check_same_thread`, que por defecto hace que una conexion
+    solo sirva al hilo que la abrio, y dar margen para esperar a que se libere un
+    bloqueo de escritura en vez de fallar en el acto. Las PRAGMA que completan
+    esto (WAL y busy_timeout) se aplican en extensions.py.
+
+    Con PostgreSQL (nube) se reciclan las conexiones antes de que el servidor las
+    corte por inactividad.
+    """
+    opciones = {"pool_pre_ping": True}
+    if uri_base_datos().startswith("sqlite"):
+        opciones["connect_args"] = {"check_same_thread": False, "timeout": 15}
+    else:
+        opciones["pool_recycle"] = 280
+        opciones["pool_size"] = 5
+        opciones["max_overflow"] = 5
+    return opciones
+
+
 def uri_base_datos():
     """
     Cadena de conexion: PostgreSQL si hay DATABASE_URL, SQLite en local si no.
@@ -67,7 +90,7 @@ class Config:
 
     SQLALCHEMY_DATABASE_URI = uri_base_datos()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
+    SQLALCHEMY_ENGINE_OPTIONS = opciones_motor()
 
     # Sesiones (RNF1 - seguridad basica)
     SESSION_COOKIE_HTTPONLY = True
