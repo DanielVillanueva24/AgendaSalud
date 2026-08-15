@@ -88,7 +88,7 @@ const HoyUI = (() => {
                 </td>
               </tr>`;
           }),
-          { vacio: `Sin citas agendadas para el ${UI.fecha(fecha)}.`, icono: '📅' }
+          { vacio: `Sin citas agendadas para el ${UI.fecha(fecha)}.` }
         );
 
         enlazar(cont);

@@ -66,7 +66,12 @@ a { color: var(--azul); }
 }
 
 .login-marca { text-align: center; margin-bottom: 26px; }
-.login-marca .logo { font-size: 34px; }
+.login-marca .logo {
+  width: 54px; height: 54px; margin: 0 auto; border-radius: 14px;
+  background: var(--azul); color: #fff;
+  display: grid; place-items: center;
+  font-size: 20px; font-weight: 700; letter-spacing: .5px;
+}
 .login-marca h1 { font-size: 24px; margin-top: 8px; }
 .login-marca p { color: var(--texto-suave); margin: 6px 0 0; font-size: 13px; }
 
@@ -109,7 +114,12 @@ a { color: var(--azul); }
   display: flex; align-items: center; gap: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
-.sidebar-marca .logo { font-size: 22px; }
+.sidebar-marca .logo {
+  width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
+  background: var(--azul); color: #fff;
+  display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; letter-spacing: .5px;
+}
 .sidebar-marca h2 { font-size: 16px; color: #fff; }
 .sidebar-marca span { display: block; font-size: 11px; color: #64748b; font-weight: 400; }
 
@@ -123,7 +133,7 @@ a { color: var(--azul); }
 }
 .nav-item:hover { background: rgba(255, 255, 255, .07); color: #fff; }
 .nav-item.activo { background: var(--azul); color: #fff; font-weight: 500; }
-.nav-item .icono { font-size: 16px; width: 20px; text-align: center; }
+.nav-item[hidden] { display: none; }
 
 .sidebar-pie { padding: 14px; border-top: 1px solid rgba(255, 255, 255, .08); }
 .usuario-caja { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
@@ -254,7 +264,9 @@ table.tabla td.acciones .btn { margin-left: 4px; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .vacio { padding: 42px 20px; text-align: center; color: var(--texto-tenue); }
-.vacio .icono { font-size: 34px; display: block; margin-bottom: 10px; opacity: .5; }
+
+/* Paciente dado de baja: sigue siendo legible, pero se distingue de un activo */
+.fila-inactiva > td { background: var(--superficie-alt); color: var(--texto-suave); }
 
 /* --- Etiquetas de estado -------------------------------------------------- */
 
@@ -461,9 +473,9 @@ table.tabla td.acciones .btn { margin-left: 4px; }
   .sidebar { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; flex-wrap: wrap; }
   .sidebar-marca { border: 0; padding: 12px 14px; }
   .sidebar-nav { flex-direction: row; overflow-x: auto; padding: 8px; flex-wrap: nowrap; }
-  .nav-item { white-space: nowrap; width: auto; }
-  .nav-item .texto { display: none; }
-  .nav-item .icono { font-size: 18px; }
+  /* Sin iconos, el texto es lo unico que identifica cada seccion: se mantiene
+     visible y la barra se desplaza en horizontal si no cabe. */
+  .nav-item { white-space: nowrap; width: auto; padding: 9px 12px; font-size: 13px; }
   .sidebar-pie { border: 0; padding: 8px 14px; }
   .usuario-caja { margin: 0; }
   .usuario-datos, .sidebar-pie .btn { display: none; }

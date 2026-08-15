@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AgendaSalud — Gestión de citas</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%232563eb'/><text x='32' y='44' font-size='34' font-family='Segoe UI,sans-serif' font-weight='600' fill='white' text-anchor='middle'>AS</text></svg>">
   <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
 <div id="pantalla-login" class="login-pantalla" hidden>
   <div class="login-tarjeta">
     <div class="login-marca">
-      <div class="logo">🩺</div>
+      <div class="logo">AS</div>
       <h1>AgendaSalud</h1>
       <p>Gestión de citas y control de ausentismo</p>
     </div>
@@ -52,17 +52,19 @@
 
   <aside class="sidebar">
     <div class="sidebar-marca">
-      <span class="logo">🩺</span>
+      <span class="logo">AS</span>
       <h2>AgendaSalud<span>CAP 499</span></h2>
     </div>
 
     <nav class="sidebar-nav" id="nav">
-      <button class="nav-item" data-vista="hoy"><span class="icono">📋</span><span class="texto">Hoy</span></button>
-      <button class="nav-item" data-vista="agenda"><span class="icono">📅</span><span class="texto">Agenda</span></button>
-      <button class="nav-item" data-vista="pacientes"><span class="icono">👥</span><span class="texto">Pacientes</span></button>
-      <button class="nav-item" data-vista="profesionales" data-rol="admin"><span class="icono">🩺</span><span class="texto">Profesionales</span></button>
-      <button class="nav-item" data-vista="indicadores"><span class="icono">📊</span><span class="texto">Indicadores</span></button>
-      <button class="nav-item" data-vista="usuarios" data-rol="admin"><span class="icono">🔐</span><span class="texto">Usuarios</span></button>
+      <!-- data-rol: solo lo ve ese rol (y admin). data-sin-rol: ese rol no lo ve.
+           El profesional no necesita "Hoy": su agenda ya es la vista del dia. -->
+      <button class="nav-item" data-vista="hoy" data-sin-rol="profesional"><span class="texto">Hoy</span></button>
+      <button class="nav-item" data-vista="agenda"><span class="texto">Agenda</span></button>
+      <button class="nav-item" data-vista="pacientes"><span class="texto">Pacientes</span></button>
+      <button class="nav-item" data-vista="profesionales" data-rol="admin"><span class="texto">Profesionales</span></button>
+      <button class="nav-item" data-vista="indicadores"><span class="texto">Indicadores</span></button>
+      <button class="nav-item" data-vista="usuarios" data-rol="admin"><span class="texto">Usuarios</span></button>
     </nav>
 
     <div class="sidebar-pie">
@@ -151,10 +153,16 @@
               <label for="buscar-paciente">Buscar</label>
               <input type="search" id="buscar-paciente" placeholder="Nombre, documento, teléfono o correo…">
             </div>
-            <label class="check" style="padding-bottom:9px">
-              <input type="checkbox" id="pacientes-inactivos"> Mostrar inactivos
-            </label>
+            <div class="campo">
+              <label for="pacientes-estado">Estado</label>
+              <select id="pacientes-estado">
+                <option value="activos">Solo activos</option>
+                <option value="todos">Activos e inactivos</option>
+                <option value="inactivos">Solo inactivos</option>
+              </select>
+            </div>
           </div>
+          <div class="ayuda" id="pacientes-conteo"></div>
         </div>
         <div class="panel-cuerpo sin-padding tabla-scroll" id="pacientes-tabla"></div>
       </div>
@@ -199,7 +207,9 @@
               </select>
             </div>
             <button class="btn btn-primario" id="btn-aplicar-ind">Aplicar</button>
+            <button class="btn" id="btn-reiniciar-ind" title="Volver a los últimos 90 días">Últimos 90 días</button>
           </div>
+          <div class="alerta-inline" id="ind-aviso-rango" hidden></div>
         </div>
       </div>
 

@@ -13,7 +13,7 @@ const ProfesionalesUI = (() => {
         </select>
         <input type="time" data-inicio step="900" value="${h.hora_inicio || '09:00'}">
         <input type="time" data-fin step="900" value="${h.hora_fin || '13:00'}">
-        <button type="button" class="btn btn-sm btn-icono" data-quitar title="Quitar franja">✕</button>
+        <button type="button" class="btn btn-sm btn-icono" data-quitar title="Quitar franja">Quitar</button>
       </div>`;
   }
 
@@ -196,7 +196,7 @@ const ProfesionalesUI = (() => {
                 <button class="btn btn-sm" data-agenda="${p.id}">Ver agenda</button>
               </td>
             </tr>`),
-          { vacio: 'Aún no hay profesionales registrados.', icono: '🩺' }
+          { vacio: 'Aún no hay profesionales registrados.' }
         );
 
         cont.querySelectorAll('[data-editar]').forEach(b => b.addEventListener('click', () => {

@@ -196,7 +196,7 @@ const UsuariosUI = (() => {
                 </td>
               </tr>`;
           }),
-          { vacio: 'No hay usuarios registrados.', icono: '🔐' }
+          { vacio: 'No hay usuarios registrados.' }
         );
 
         cont.querySelectorAll('[data-editar]').forEach(b => b.addEventListener('click', () =>

@@ -79,7 +79,7 @@ const App = (() => {
 
   function irA(nombre) {
     const vista = VISTAS[nombre];
-    if (!vista) return;
+    if (!vista || esVistaProhibida(nombre)) return;
 
     estado.vista = nombre;
     localStorage.setItem('agendasalud.vista', nombre);
@@ -127,13 +127,19 @@ const App = (() => {
   // (un COUNT y un MAX) y solo se repinta cuando otro usuario la ha cambiado.
   // Asi una cita creada por recepcion aparece sola en la pantalla del profesional.
 
-  const INTERVALO_SINCRONIA = 4000;
+  const INTERVALO_SINCRONIA = 6000;
   let versionAgenda = null;
   let temporizadorSincronia = null;
+  let sondeoEnCurso = false;
 
   async function comprobarCambios() {
     // Sin sesion no hay nada que mirar; con la pestaña oculta no se gasta red
     if (!estado.usuario || document.hidden) return;
+    // Si el servidor va lento, las consultas del sondeo se acumularian una
+    // encima de otra y lo dejarian aun mas lento: solo se permite una en vuelo.
+    if (sondeoEnCurso) return;
+
+    sondeoEnCurso = true;
     try {
       const { version } = await API.citas.version();
       if (versionAgenda === null) {
@@ -144,6 +150,8 @@ const App = (() => {
       }
     } catch (e) {
       // Servidor caido o sesion expirada: se reintenta en el siguiente ciclo
+    } finally {
+      sondeoEnCurso = false;
     }
   }
 
@@ -158,6 +166,7 @@ const App = (() => {
   function detenerSincronia() {
     clearInterval(temporizadorSincronia);
     temporizadorSincronia = null;
+    sondeoEnCurso = false;
     document.removeEventListener('visibilitychange', alVolverAlaPestana);
   }
 
@@ -180,9 +189,11 @@ const App = (() => {
     document.getElementById('usuario-rol').textContent =
       ({ admin: 'Administrador', recepcion: 'Recepción', profesional: 'Profesional' })[u.rol] || u.rol;
 
-    // Oculta las secciones que el rol no puede usar
-    document.querySelectorAll('.nav-item[data-rol]').forEach(b => {
-      b.hidden = !puede(b.dataset.rol);
+    // Oculta las secciones que el rol no puede usar (data-rol) y las que no le
+    // aportan nada (data-sin-rol: el profesional no necesita "Hoy", su agenda ya
+    // es la vista del dia).
+    document.querySelectorAll('.nav-item').forEach(b => {
+      b.hidden = esVistaProhibida(b.dataset.vista);
     });
   }
 
@@ -198,24 +209,43 @@ const App = (() => {
       UI.mostrarError(e);
     }
 
-    const guardada = localStorage.getItem('agendasalud.vista');
-    const inicial = (guardada && VISTAS[guardada] && !esVistaProhibida(guardada)) ? guardada : 'hoy';
-    irA(inicial);
+    irA(vistaInicial());
 
     iniciarSincronia();
   }
 
   function esVistaProhibida(nombre) {
     const boton = document.querySelector(`.nav-item[data-vista="${nombre}"]`);
-    return Boolean(boton && boton.dataset.rol && !puede(boton.dataset.rol));
+    if (!boton || !estado.usuario) return false;
+    if (boton.dataset.rol && !puede(boton.dataset.rol)) return true;
+    return boton.dataset.sinRol === estado.usuario.rol;
+  }
+
+  /** Primera vista al entrar: la que se dejo abierta, si el rol puede verla. */
+  function vistaInicial() {
+    const guardada = localStorage.getItem('agendasalud.vista');
+    if (guardada && VISTAS[guardada] && !esVistaProhibida(guardada)) return guardada;
+    return esVistaProhibida('hoy') ? 'agenda' : 'hoy';
   }
 
   function salir(mensaje) {
     detenerSincronia();
+
+    // Las vistas montadas guardan estado del usuario anterior (el calendario,
+    // por ejemplo, fija sus permisos de arrastre al construirse), asi que se les
+    // avisa para que lo suelten. `montadas` NO se vacia: montar() es lo que
+    // engancha los listeners del DOM, y volver a llamarlo en el siguiente login
+    // dejaria dos copias de cada uno, con lo que cada filtro dispararia dos
+    // consultas identicas.
+    montadas.forEach(nombre => {
+      const vista = VISTAS[nombre];
+      if (vista && vista.desmontar) vista.desmontar();
+    });
+
     estado.usuario = null;
     estado.profesionales = [];
     estado.pacientes = [];
-    montadas.clear();
+    estado.vista = null;
     document.getElementById('modales').innerHTML = '';
     document.getElementById('app').hidden = true;
     document.getElementById('pantalla-login').hidden = false;

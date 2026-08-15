@@ -5,11 +5,11 @@
 const UI = (() => {
 
   const ESTADOS = {
-    pendiente:  { texto: 'Pendiente',  icono: '⏳' },
-    confirmada: { texto: 'Confirmada', icono: '✓' },
-    atendida:   { texto: 'Atendida',   icono: '✔' },
-    cancelada:  { texto: 'Cancelada',  icono: '✕' },
-    no_asistio: { texto: 'No asistió', icono: '⚠' },
+    pendiente:  { texto: 'Pendiente' },
+    confirmada: { texto: 'Confirmada' },
+    atendida:   { texto: 'Atendida' },
+    cancelada:  { texto: 'Cancelada' },
+    no_asistio: { texto: 'No asistió' },
   };
 
   const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -160,7 +160,8 @@ const UI = (() => {
     document.getElementById('modales').appendChild(overlay);
     modalesAbiertos.push(api);
 
-    const primerCampo = overlay.querySelector('input:not([type=hidden]), select, textarea');
+    const primerCampo = overlay.querySelector(
+      'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
     if (primerCampo) setTimeout(() => primerCampo.focus(), 40);
 
     return api;
@@ -185,9 +186,9 @@ const UI = (() => {
   /* --- Tablas ------------------------------------------------------------- */
 
   /** tabla(columnas, filas, opciones) -> HTML. columnas: [{titulo, clase}] */
-  function tabla(columnas, filasHtml, { vacio = 'Sin resultados', icono = '📭' } = {}) {
+  function tabla(columnas, filasHtml, { vacio = 'Sin resultados' } = {}) {
     if (!filasHtml || !filasHtml.length) {
-      return `<div class="vacio"><span class="icono">${icono}</span>${esc(vacio)}</div>`;
+      return `<div class="vacio">${esc(vacio)}</div>`;
     }
     return `
       <table class="tabla">
