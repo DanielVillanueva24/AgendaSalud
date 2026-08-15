@@ -6,6 +6,10 @@ const IndicadoresUI = (() => {
 
   const graficos = {};
 
+  // Testigo de la consulta en curso: descarta las respuestas que llegan tarde
+  // cuando el usuario pulsa "Aplicar" varias veces seguidas.
+  let consultaVigente = null;
+
   const COLORES = {
     azul: '#2563eb', verde: '#059669', rojo: '#dc2626',
     ambar: '#d97706', gris: '#94a3b8', violeta: '#7c3aed',
@@ -22,12 +26,62 @@ const IndicadoresUI = (() => {
     graficos[id] = new Chart(document.getElementById(id), config);
   }
 
-  function parametros() {
-    return {
-      desde: document.getElementById('ind-desde').value || undefined,
-      hasta: document.getElementById('ind-hasta').value || undefined,
-      profesional_id: document.getElementById('ind-profesional').value || undefined,
-    };
+  const DIAS_POR_DEFECTO = 90;
+
+  /* --- Rango de fechas ----------------------------------------------------- */
+
+  function fijarRango(dias = DIAS_POR_DEFECTO) {
+    const hasta = new Date();
+    const desde = new Date();
+    desde.setDate(desde.getDate() - (dias - 1));
+    document.getElementById('ind-desde').value = UI.isoFecha(desde);
+    document.getElementById('ind-hasta').value = UI.isoFecha(hasta);
+  }
+
+  /**
+   * Normaliza el rango antes de consultar.
+   *
+   * Devuelve { desde, hasta, aviso }. Nunca deja pasar un rango imposible: si
+   * falta un extremo lo completa, y si estan invertidos los intercambia y lo
+   * dice, en vez de mandar a la API una consulta que devuelve cero citas sin
+   * explicar por que.
+   */
+  function normalizarRango() {
+    const campoDesde = document.getElementById('ind-desde');
+    const campoHasta = document.getElementById('ind-hasta');
+    let desde = campoDesde.value;
+    let hasta = campoHasta.value;
+    let aviso = null;
+
+    if (!desde && !hasta) {
+      fijarRango();
+      return { desde: campoDesde.value, hasta: campoHasta.value, aviso: null };
+    }
+    if (!hasta) {
+      hasta = UI.isoFecha(new Date());
+      aviso = `Sin fecha final se analiza hasta hoy (${UI.fecha(hasta)}).`;
+    }
+    if (!desde) {
+      const d = new Date(`${hasta}T00:00:00`);
+      d.setDate(d.getDate() - (DIAS_POR_DEFECTO - 1));
+      desde = UI.isoFecha(d);
+      aviso = `Sin fecha inicial se analizan los ${DIAS_POR_DEFECTO} días previos (desde el ${UI.fecha(desde)}).`;
+    }
+    if (desde > hasta) {
+      [desde, hasta] = [hasta, desde];
+      aviso = 'La fecha inicial era posterior a la final: se intercambiaron.';
+    }
+
+    campoDesde.value = desde;
+    campoHasta.value = hasta;
+    return { desde, hasta, aviso };
+  }
+
+  function mostrarAviso(texto) {
+    const caja = document.getElementById('ind-aviso-rango');
+    caja.hidden = !texto;
+    caja.className = 'alerta-inline aviso';
+    caja.textContent = texto || '';
   }
 
   /* --- Bloques ------------------------------------------------------------- */
@@ -203,7 +257,7 @@ const IndicadoresUI = (() => {
             <td class="num">${p.horas_agendadas} h</td>
           </tr>`;
       }),
-      { vacio: 'No hay citas en el rango seleccionado.', icono: '📊' }
+      { vacio: 'No hay citas en el rango seleccionado.' }
     );
   }
 
@@ -224,7 +278,7 @@ const IndicadoresUI = (() => {
           <td class="num"><span class="tag ${p.tasa_ausentismo >= 20 ? 'tag-no_asistio' : 'tag-pendiente'}">${UI.porcentaje(p.tasa_ausentismo)}</span></td>
           <td class="acciones"><button class="btn btn-sm" data-ficha-btn="${p.paciente_id}">Ver ficha</button></td>
         </tr>`),
-      { vacio: 'Ningún paciente supera el umbral de inasistencias. 🎉', icono: '✅' }
+      { vacio: 'Ningún paciente supera el umbral de inasistencias.' }
     );
 
     cont.querySelectorAll('[data-ficha]').forEach(a => a.addEventListener('click', (e) => {
@@ -241,30 +295,52 @@ const IndicadoresUI = (() => {
     subtitulo: 'Ausentismo y ocupación de la agenda',
 
     acciones() {
-      return [{ texto: '🖨 Imprimir', onClick: () => window.print() }];
+      return [{ texto: 'Imprimir', onClick: () => window.print() }];
     },
 
     montar() {
-      const hasta = new Date();
-      const desde = new Date();
-      desde.setDate(desde.getDate() - 89);
-      document.getElementById('ind-desde').value = UI.isoFecha(desde);
-      document.getElementById('ind-hasta').value = UI.isoFecha(hasta);
+      fijarRango();
 
       document.getElementById('btn-aplicar-ind').addEventListener('click', () => Vista.refrescar());
       document.getElementById('ind-agrupar').addEventListener('change', () => Vista.refrescar());
+      document.getElementById('ind-profesional').addEventListener('change', () => Vista.refrescar());
+      document.getElementById('btn-reiniciar-ind').addEventListener('click', () => {
+        fijarRango();
+        Vista.refrescar();
+      });
     },
 
     async refrescar() {
-      const p = parametros();
+      const { desde, hasta, aviso } = normalizarRango();
+      mostrarAviso(aviso);
+
+      const p = {
+        desde,
+        hasta,
+        profesional_id: document.getElementById('ind-profesional').value || undefined,
+      };
+
+      // El panel son cinco consultas en paralelo. Si el usuario vuelve a pulsar
+      // "Aplicar" antes de que terminen, arrancan otras cinco y las dos tandas
+      // compiten por pintar los mismos graficos: gana la que conteste ultima,
+      // que no tiene por que ser la del ultimo rango pedido. El testigo descarta
+      // las respuestas de cualquier consulta que ya quedo obsoleta.
+      const testigo = Symbol('consulta');
+      consultaVigente = testigo;
+      bloquearControles(true);
+
       try {
         const [resumen, serie, porProf, patrones, riesgo] = await Promise.all([
           API.indicadores.resumen(p),
           API.indicadores.serie({ ...p, agrupar: document.getElementById('ind-agrupar').value }),
           API.indicadores.porProfesional(p),
           API.indicadores.patrones(p),
+          // El riesgo del paciente se calcula sobre todo su historial, no sobre
+          // el rango: dos faltas en 90 dias no dicen si el paciente falta siempre.
           API.indicadores.pacientesRiesgo({ limite: 10 }),
         ]);
+
+        if (consultaVigente !== testigo) return;   // llego tarde: la manda otra consulta
 
         pintarKpis(resumen);
         pintarSerie(serie);
@@ -273,12 +349,26 @@ const IndicadoresUI = (() => {
         pintarRiesgo(riesgo);
 
         document.getElementById('vista-subtitulo').textContent =
-          `Del ${UI.fecha(resumen.rango.desde)} al ${UI.fecha(resumen.rango.hasta)} · ${resumen.total_citas} citas analizadas`;
+          `Del ${UI.fecha(resumen.rango.desde)} al ${UI.fecha(resumen.rango.hasta)}`
+          + ` (${resumen.rango.dias} días) · ${resumen.total_citas} citas analizadas`;
       } catch (e) {
-        UI.mostrarError(e);
+        if (consultaVigente === testigo) UI.mostrarError(e);
+      } finally {
+        if (consultaVigente === testigo) {
+          consultaVigente = null;
+          bloquearControles(false);
+        }
       }
     },
   };
+
+  /** Evita que un segundo clic dispare la consulta mientras la primera sigue en curso. */
+  function bloquearControles(activo) {
+    const boton = document.getElementById('btn-aplicar-ind');
+    boton.disabled = activo;
+    boton.textContent = activo ? 'Calculando…' : 'Aplicar';
+    document.getElementById('btn-reiniciar-ind').disabled = activo;
+  }
 
   return { Vista };
 })();
