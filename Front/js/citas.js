@@ -7,12 +7,25 @@ const CitasUI = (() => {
 
   /* --- Formulario de alta / edicion --------------------------------------- */
 
+  /**
+   * abrirFormulario(cita, prefijo)
+   *
+   * `prefijo.paciente_id` llega desde la vista de Pacientes ("Agendar" en la
+   * fila o en la ficha). En ese caso el paciente ya esta elegido y el formulario
+   * lo deja fijo: si se pudiera cambiar, es facilisimo abrir la ficha de un
+   * paciente y acabar creandole la cita a otro sin darse cuenta.
+   */
   function abrirFormulario(cita = null, prefijo = {}) {
     const edicion = Boolean(cita);
     const inicio = cita ? new Date(cita.inicio)
                         : (prefijo.inicio ? new Date(prefijo.inicio) : proximaHoraRedonda());
     const profesionalId = cita ? cita.profesional_id : (prefijo.profesional_id || '');
     const duracion = cita ? cita.duracion_min : (prefijo.duracion_min || null);
+
+    const pacienteFijo = !edicion && Boolean(prefijo.paciente_id);
+    const fijado = pacienteFijo
+      ? App.estado.pacientes.find(p => p.id === Number(prefijo.paciente_id))
+      : null;
 
     const m = UI.modal({
       titulo: edicion ? `Editar cita #${cita.id}` : 'Nueva cita',
@@ -22,9 +35,13 @@ const CitasUI = (() => {
           <div class="fila">
             <div class="campo">
               <label for="cita-paciente">Paciente *</label>
-              <input type="search" id="cita-filtro-paciente" placeholder="Filtrar por nombre o documento…" style="margin-bottom:6px">
-              <select id="cita-paciente" required size="1"></select>
-              <div class="ayuda"><a href="#" id="cita-nuevo-paciente">+ Registrar un paciente nuevo</a></div>
+              ${pacienteFijo ? '' : `
+                <input type="search" id="cita-filtro-paciente" placeholder="Filtrar por nombre o documento…" style="margin-bottom:6px">`}
+              <select id="cita-paciente" required size="1" ${pacienteFijo ? 'disabled' : ''}></select>
+              <div class="ayuda">${pacienteFijo
+                ? `Cita para ${UI.esc(fijado ? fijado.nombre_completo : 'el paciente seleccionado')}. `
+                  + 'Para agendar a otro, cierra y elígelo en el listado de pacientes.'
+                : '<a href="#" id="cita-nuevo-paciente">+ Registrar un paciente nuevo</a>'}</div>
             </div>
             <div class="campo">
               <label for="cita-profesional">Profesional *</label>
@@ -93,6 +110,15 @@ const CitasUI = (() => {
     const selProfesional = m.$('#cita-profesional');
 
     function pintarPacientes(filtro = '') {
+      // Con el paciente fijado el desplegable solo contiene a ese paciente: no
+      // hay nada que elegir ni forma de cambiarlo desde aqui.
+      if (pacienteFijo) {
+        const nombre = fijado ? fijado.nombre_completo : `Paciente #${prefijo.paciente_id}`;
+        selPaciente.innerHTML = `<option value="${prefijo.paciente_id}">${UI.esc(nombre)}</option>`;
+        selPaciente.value = String(prefijo.paciente_id);
+        return;
+      }
+
       const texto = filtro.trim().toLowerCase();
       const lista = App.estado.pacientes.filter(p => {
         if (!texto) return true;
@@ -127,15 +153,18 @@ const CitasUI = (() => {
     }
     sincronizarDuracion();
 
-    m.$('#cita-filtro-paciente').addEventListener('input', (e) => pintarPacientes(e.target.value));
-    m.$('#cita-nuevo-paciente').addEventListener('click', (e) => {
-      e.preventDefault();
-      PacientesUI.abrirFormulario(null, async (nuevo) => {
-        await App.cargarPacientes();
-        pintarPacientes();
-        selPaciente.value = nuevo.id;
+    // Con el paciente fijado estos dos controles ni siquiera se pintan
+    if (!pacienteFijo) {
+      m.$('#cita-filtro-paciente').addEventListener('input', (e) => pintarPacientes(e.target.value));
+      m.$('#cita-nuevo-paciente').addEventListener('click', (e) => {
+        e.preventDefault();
+        PacientesUI.abrirFormulario(null, async (nuevo) => {
+          await App.cargarPacientes();
+          pintarPacientes();
+          selPaciente.value = nuevo.id;
+        });
       });
-    });
+    }
 
     selProfesional.addEventListener('change', () => {
       if (!duracion) m.$('#cita-duracion').value = '';
@@ -172,12 +201,12 @@ const CitasUI = (() => {
         if (verificando !== token) return;
 
         if (r.disponible) {
-          caja.innerHTML = `<div class="alerta-inline info">✓ El horario está libre y dentro de la agenda de atención.</div>`;
+          caja.innerHTML = `<div class="alerta-inline info">El horario está libre y dentro de la agenda de atención.</div>`;
         } else if (r.conflictos.length) {
           const c = r.conflictos[0];
-          caja.innerHTML = `<div class="alerta-inline">✕ Ocupado: ${UI.esc(c.paciente_nombre)} de ${UI.hora(c.inicio)} a ${UI.hora(c.fin)}.</div>`;
+          caja.innerHTML = `<div class="alerta-inline">Ocupado: ${UI.esc(c.paciente_nombre)} de ${UI.hora(c.inicio)} a ${UI.hora(c.fin)}. Elige otro hueco.</div>`;
         } else {
-          caja.innerHTML = `<div class="alerta-inline aviso">⚠ Fuera del horario de atención del profesional. Podrás agendar igualmente confirmando la excepción.</div>`;
+          caja.innerHTML = `<div class="alerta-inline aviso">Fuera del horario de atención del profesional. Podrás agendar igualmente confirmando la excepción.</div>`;
         }
       } catch (e) { /* verificacion silenciosa */ }
     }
@@ -237,7 +266,7 @@ const CitasUI = (() => {
           caja.querySelectorAll('.sugerencia').forEach(b => b.style.outline = '');
           btn.style.outline = '2px solid var(--azul)';
           m.$('#cita-estado-slot').innerHTML =
-            '<div class="alerta-inline info">✓ Horario tomado de la sugerencia del motor de optimización.</div>';
+            '<div class="alerta-inline info">Horario tomado de la sugerencia del motor de optimización.</div>';
         });
       });
     } catch (e) {

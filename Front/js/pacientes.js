@@ -137,7 +137,7 @@ const PacientesUI = (() => {
                 <td>${UI.esc(c.motivo || '—')}</td>
                 <td>${UI.tag(c.estado)}</td>
               </tr>`),
-            { vacio: 'Este paciente aún no tiene citas registradas.', icono: '📅' }
+            { vacio: 'Este paciente aún no tiene citas registradas.' }
           )}
         </div>`,
       botones: [
@@ -164,26 +164,38 @@ const PacientesUI = (() => {
 
     montar() {
       const buscar = document.getElementById('buscar-paciente');
-      const inactivos = document.getElementById('pacientes-inactivos');
       let temporizador;
 
       buscar.addEventListener('input', () => {
         clearTimeout(temporizador);
         temporizador = setTimeout(() => Vista.refrescar(), 260);
       });
-      inactivos.addEventListener('change', () => Vista.refrescar());
+      document.getElementById('pacientes-estado')
+        .addEventListener('change', () => Vista.refrescar());
     },
 
     async refrescar() {
       const cont = document.getElementById('pacientes-tabla');
+      const conteo = document.getElementById('pacientes-conteo');
+      // "Solo inactivos" no existe como filtro en la API: se piden todos y se
+      // descartan aqui los activos, que son unos pocos cientos como mucho.
+      const filtro = document.getElementById('pacientes-estado').value;
       UI.cargando(cont);
+
       try {
         const r = await API.pacientes.listar({
           q: document.getElementById('buscar-paciente').value,
-          incluir_inactivos: document.getElementById('pacientes-inactivos').checked ? 1 : '',
+          incluir_inactivos: filtro === 'activos' ? '' : 1,
           con_estadisticas: 1,
           limite: 300,
         });
+
+        const lista = filtro === 'inactivos' ? r.pacientes.filter(p => !p.activo) : r.pacientes;
+        const inactivos = r.pacientes.filter(p => !p.activo).length;
+
+        conteo.textContent = filtro === 'activos'
+          ? `${lista.length} paciente(s) activo(s).`
+          : `${lista.length} paciente(s) en pantalla · ${inactivos} dado(s) de baja.`;
 
         const gestiona = App.puede('recepcion');
         cont.innerHTML = UI.tabla(
@@ -192,12 +204,12 @@ const PacientesUI = (() => {
             { titulo: 'Citas', clase: 'num' }, { titulo: 'Ausentismo', clase: 'num' },
             { titulo: '', clase: 'num' },
           ],
-          r.pacientes.map(p => {
+          lista.map(p => {
             const a = p.asistencia;
             const tono = a.tasa_ausentismo >= 20 ? 'tag-no_asistio'
                        : a.tasa_ausentismo > 0 ? 'tag-pendiente' : 'tag-atendida';
             return `
-              <tr>
+              <tr${p.activo ? '' : ' class="fila-inactiva"'}>
                 <td>
                   <a href="#" data-ficha="${p.id}"><strong>${UI.esc(p.nombre_completo)}</strong></a>
                   ${p.activo ? '' : ' <span class="tag tag-neutro">Inactivo</span>'}
@@ -209,11 +221,17 @@ const PacientesUI = (() => {
                 <td class="acciones">
                   ${gestiona ? `
                     <button class="btn btn-sm" data-editar="${p.id}">Editar</button>
-                    <button class="btn btn-sm btn-primario" data-agendar="${p.id}">Agendar</button>` : ''}
+                    ${p.activo
+                      ? `<button class="btn btn-sm btn-primario" data-agendar="${p.id}">Agendar</button>
+                         <button class="btn btn-sm" data-baja="${p.id}"
+                                 data-nombre="${UI.esc(p.nombre_completo)}">Dar de baja</button>`
+                      : `<button class="btn btn-sm btn-exito" data-alta="${p.id}">Reactivar</button>`}` : ''}
                 </td>
               </tr>`;
           }),
-          { vacio: 'No se encontraron pacientes con esos criterios.', icono: '👥' }
+          { vacio: filtro === 'inactivos'
+              ? 'No hay pacientes dados de baja.'
+              : 'No se encontraron pacientes con esos criterios.' }
         );
 
         cont.querySelectorAll('[data-ficha]').forEach(a => a.addEventListener('click', (e) => {
@@ -226,11 +244,49 @@ const PacientesUI = (() => {
         cont.querySelectorAll('[data-agendar]').forEach(b => b.addEventListener('click', () => {
           CitasUI.abrirFormulario(null, { paciente_id: Number(b.dataset.agendar) });
         }));
+        cont.querySelectorAll('[data-baja]').forEach(b =>
+          b.addEventListener('click', () => darDeBaja(Number(b.dataset.baja), b.dataset.nombre)));
+        cont.querySelectorAll('[data-alta]').forEach(b =>
+          b.addEventListener('click', () => reactivar(Number(b.dataset.alta))));
       } catch (e) {
+        conteo.textContent = '';
         cont.innerHTML = `<div class="vacio">${UI.esc(e.message)}</div>`;
       }
     },
   };
+
+  /* --- Alta y baja logica -------------------------------------------------- */
+
+  async function darDeBaja(id, nombre) {
+    const ok = await UI.confirmar({
+      titulo: 'Dar de baja al paciente',
+      mensaje: `${nombre} dejará de aparecer en el listado y no se le podrán agendar citas nuevas. `
+             + 'Su historial se conserva y puedes reactivarlo cuando quieras.',
+      textoOk: 'Dar de baja',
+      claseOk: 'btn-peligro',
+    });
+    if (!ok) return;
+
+    try {
+      await API.pacientes.desactivar(id);
+      UI.exito('Paciente dado de baja.');
+      await App.cargarPacientes();
+      Vista.refrescar();
+    } catch (e) {
+      UI.mostrarError(e);
+    }
+  }
+
+  async function reactivar(id) {
+    try {
+      await API.pacientes.actualizar(id, { activo: true });
+      UI.exito('Paciente reactivado.');
+      await App.cargarPacientes();
+      Vista.refrescar();
+    } catch (e) {
+      UI.mostrarError(e);
+    }
+  }
 
   return { abrirFormulario, abrirFicha, Vista };
 })();
