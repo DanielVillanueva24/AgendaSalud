@@ -121,18 +121,25 @@ class Config:
     MAIL_USE_SSL = False
     MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
     MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
-    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER") or os.environ.get("MAIL_USERNAME")
+    # Direccion desde la que salen los correos al paciente. El valor del entorno
+    # manda; si no hay ninguno se usa la cuenta del proyecto, para no tener que
+    # repetirla en cada despliegue. Con Brevo esta direccion tiene que estar
+    # verificada en la cuenta (Senders & IP > Senders) o el envio se rechaza.
+    MAIL_REMITENTE_POR_DEFECTO = "agendasaludcitas@gmail.com"
+    MAIL_DEFAULT_SENDER = (
+        os.environ.get("MAIL_DEFAULT_SENDER")
+        or os.environ.get("MAIL_USERNAME")
+        or MAIL_REMITENTE_POR_DEFECTO
+    )
 
-    # Remitente que ve el paciente. Con Brevo tiene que ser una direccion
-    # verificada en la cuenta (Senders & IP > Senders).
+    # Nombre visible junto a la direccion en la bandeja del paciente
     MAIL_SENDER_NAME = os.environ.get("MAIL_SENDER_NAME", "AgendaSalud")
     BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "").strip()
 
-    # Sin credenciales la app funciona igual: el correo no se envia, se
-    # escribe en el log. La agenda nunca depende de que el correo responda.
-    NOTIFICACIONES_ACTIVAS = bool(
-        (BREVO_API_KEY and MAIL_DEFAULT_SENDER) or (MAIL_USERNAME and MAIL_PASSWORD)
-    )
+    # Lo que falta siempre son las credenciales, nunca el remitente (ya tiene
+    # valor por defecto). Sin ellas la app funciona igual: el correo no se envia,
+    # se escribe en el log. La agenda nunca depende de que el correo responda.
+    NOTIFICACIONES_ACTIVAS = bool(BREVO_API_KEY or (MAIL_USERNAME and MAIL_PASSWORD))
 
     # --- Recordatorio diario (APScheduler) ------------------------------------
     RECORDATORIOS_ACTIVOS = _bandera("RECORDATORIOS_ACTIVOS")
