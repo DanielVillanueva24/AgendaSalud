@@ -105,41 +105,31 @@ class Config:
     ANTICIPACION_MINIMA_MIN = 0     # minutos minimos para agendar a futuro
 
     # --- Notificaciones por correo -------------------------------------------
-    # Hay dos vias de envio y se elige la primera disponible:
+    # Unica via de envio: SMTP de Gmail con Flask-Mail.
     #
-    #   1. Brevo sobre HTTPS (BREVO_API_KEY). Es la que funciona en la nube:
-    #      muchos planes gratuitos bloquean las conexiones salientes a los
-    #      puertos de SMTP, y entonces Gmail falla con "Network is unreachable"
-    #      sin que las credenciales tengan nada que ver.
-    #   2. SMTP de Gmail (MAIL_USERNAME + MAIL_PASSWORD), util en local.
-    #
-    # MAIL_PASSWORD debe ser una *contrasena de aplicacion* de Gmail (16
-    # caracteres, requiere verificacion en dos pasos). Nunca va en el codigo.
+    # MAIL_USERNAME es la cuenta de Gmail que envia (p. ej.
+    # agendasaludcitas@gmail.com) y MAIL_PASSWORD su *contrasena de aplicacion*
+    # de 16 caracteres, no la contrasena normal: requiere tener activada la
+    # verificacion en dos pasos en la cuenta. Ninguna de las dos va en el codigo.
     MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
     MAIL_PORT = int(os.environ.get("MAIL_PORT", "587"))
     MAIL_USE_TLS = True
     MAIL_USE_SSL = False
     MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
     MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
-    # Direccion desde la que salen los correos al paciente. El valor del entorno
-    # manda; si no hay ninguno se usa la cuenta del proyecto, para no tener que
-    # repetirla en cada despliegue. Con Brevo esta direccion tiene que estar
-    # verificada en la cuenta (Senders & IP > Senders) o el envio se rechaza.
-    MAIL_REMITENTE_POR_DEFECTO = "agendasaludcitas@gmail.com"
-    MAIL_DEFAULT_SENDER = (
-        os.environ.get("MAIL_DEFAULT_SENDER")
-        or os.environ.get("MAIL_USERNAME")
-        or MAIL_REMITENTE_POR_DEFECTO
-    )
+
+    # El remitente es siempre la cuenta autenticada. No se deja configurar
+    # aparte porque Gmail reescribe el From al usuario con el que se autentico:
+    # poner otra direccion no la cambiaria, solo daria la falsa impresion de que
+    # el correo sale de otro sitio.
+    MAIL_DEFAULT_SENDER = MAIL_USERNAME
 
     # Nombre visible junto a la direccion en la bandeja del paciente
     MAIL_SENDER_NAME = os.environ.get("MAIL_SENDER_NAME", "AgendaSalud")
-    BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "").strip()
 
-    # Lo que falta siempre son las credenciales, nunca el remitente (ya tiene
-    # valor por defecto). Sin ellas la app funciona igual: el correo no se envia,
-    # se escribe en el log. La agenda nunca depende de que el correo responda.
-    NOTIFICACIONES_ACTIVAS = bool(BREVO_API_KEY or (MAIL_USERNAME and MAIL_PASSWORD))
+    # Sin credenciales la app funciona igual: el correo no se envia, se escribe
+    # en el log. La agenda nunca depende de que el correo responda.
+    NOTIFICACIONES_ACTIVAS = bool(MAIL_USERNAME and MAIL_PASSWORD)
 
     # --- Recordatorio diario (APScheduler) ------------------------------------
     RECORDATORIOS_ACTIVOS = _bandera("RECORDATORIOS_ACTIVOS")

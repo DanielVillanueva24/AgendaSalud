@@ -15,23 +15,22 @@ pierde ni ninguna peticion falla por un problema de correo.
 
 Configuracion (variables de entorno, nunca en el codigo):
 
-    MAIL_USERNAME   cuenta de Gmail que envia
-    MAIL_PASSWORD   contrasena de aplicacion de 16 caracteres
+    MAIL_USERNAME   cuenta de Gmail que envia; es tambien el remitente
+    MAIL_PASSWORD   contrasena de aplicacion de 16 caracteres (no la normal)
+
+Para comprobar que la configuracion funciona sin esperar a que haya una cita:
+
+    flask --app app probar-correo destino@ejemplo.com
 """
 import atexit
-import json
 import logging
-import os
+import smtplib
 import threading
-import urllib.error
-import urllib.request
 from datetime import date, datetime, time, timedelta
 
 from flask import current_app
 
 logger = logging.getLogger("agendasalud.notificaciones")
-
-_BREVO_URL = "https://api.brevo.com/v3/smtp/email"
 
 # Flask-Mail y APScheduler son opcionales: sin ellos la app arranca igual y
 # los correos quedan en el log (modo simulado).
@@ -64,7 +63,7 @@ def init_app(app):
     """Conecta Flask-Mail y deja lista la tarea de recordatorios."""
     if mail is not None:
         mail.init_app(app)
-    elif app.config.get("NOTIFICACIONES_ACTIVAS") and not app.config.get("BREVO_API_KEY"):
+    elif app.config.get("NOTIFICACIONES_ACTIVAS"):
         logger.warning(
             "Hay credenciales de correo pero Flask-Mail no esta instalado; "
             "ejecuta: pip install -r requirements.txt"
@@ -72,14 +71,12 @@ def init_app(app):
 
     if app.config.get("TESTING"):
         pass                                     # en pruebas se levanta una app por caso
-    elif app.config.get("BREVO_API_KEY"):
-        logger.info("Notificaciones por correo activas via Brevo (remitente: %s)",
-                    app.config.get("MAIL_DEFAULT_SENDER"))
     elif app.config.get("NOTIFICACIONES_ACTIVAS"):
-        logger.info("Notificaciones por correo activas via SMTP (%s)", app.config.get("MAIL_USERNAME"))
+        logger.info("Notificaciones por correo activas via SMTP de %s (remitente: %s)",
+                    app.config.get("MAIL_SERVER"), app.config.get("MAIL_USERNAME"))
     else:
-        logger.info("Notificaciones en modo simulado: define BREVO_API_KEY (nube) "
-                    "o MAIL_USERNAME y MAIL_PASSWORD (local) para enviar")
+        logger.info("Notificaciones en modo simulado: define MAIL_USERNAME y "
+                    "MAIL_PASSWORD (contrasena de aplicacion de Gmail) para enviar")
 
     # La tarea diaria no se arranca aqui: quien crea la app no sabe todavia si
     # este proceso es el definitivo o el padre del recargador. Lo decide app.py.
@@ -88,7 +85,12 @@ def init_app(app):
 # --- Envio --------------------------------------------------------------------
 
 def _enviar(app, destinatario, asunto, cuerpo):
-    """Envia un correo y devuelve ENVIADO / SIMULADO / ERROR. Nunca lanza."""
+    """
+    Envia un correo por el SMTP de Gmail y devuelve ENVIADO / SIMULADO / ERROR.
+
+    Nunca lanza: un fallo de correo no puede tumbar la peticion que agendo la
+    cita. El motivo del fallo queda siempre en el log.
+    """
     if not destinatario:
         return ERROR
 
@@ -97,91 +99,55 @@ def _enviar(app, destinatario, asunto, cuerpo):
         logger.info("[correo simulado] para=%s asunto=%s", destinatario, asunto)
         return SIMULADO
 
-    if app.config.get("BREVO_API_KEY"):
-        return _enviar_por_brevo(app, destinatario, asunto, cuerpo)
-    return _enviar_por_smtp(app, destinatario, asunto, cuerpo)
-
-
-def _enviar_por_brevo(app, destinatario, asunto, cuerpo):
-    """
-    Envio por la API HTTPS de Brevo.
-
-    Es la via que funciona en la nube: los planes gratuitos suelen bloquear las
-    conexiones salientes a los puertos de SMTP, y el 443 no. Se usa urllib de la
-    biblioteca estandar para no anadir dependencias.
-    """
-    remitente = app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME")
-    if not remitente:
-        logger.error("BREVO_API_KEY definida pero falta MAIL_DEFAULT_SENDER (remitente)")
-        return ERROR
-
-    carga = json.dumps({
-        "sender": {"email": remitente, "name": app.config.get("MAIL_SENDER_NAME", "AgendaSalud")},
-        "to": [{"email": destinatario}],
-        "subject": asunto,
-        "textContent": cuerpo,
-    }).encode("utf-8")
-
-    peticion = urllib.request.Request(
-        _BREVO_URL,
-        data=carga,
-        method="POST",
-        headers={
-            "api-key": app.config["BREVO_API_KEY"],
-            "content-type": "application/json",
-            "accept": "application/json",
-        },
-    )
-
-    try:
-        with urllib.request.urlopen(peticion, timeout=20) as respuesta:
-            respuesta.read()
-        logger.info("Correo enviado a %s via Brevo (%s)", destinatario, asunto)
-        return ENVIADO
-    except urllib.error.HTTPError as err:
-        # Brevo explica el motivo en el cuerpo: remitente sin verificar, clave
-        # invalida, cuota agotada... Sin esto solo se veria "HTTP Error 400".
-        try:
-            detalle = err.read().decode("utf-8", "replace")[:400]
-        except Exception:
-            detalle = ""
-        logger.error("Brevo rechazo el correo a %s: HTTP %s %s",
-                     destinatario, err.code, detalle)
-        return ERROR
-    except Exception:
-        logger.exception("No se pudo enviar el correo a %s via Brevo", destinatario)
-        return ERROR
-
-
-def _enviar_por_smtp(app, destinatario, asunto, cuerpo):
-    """Envio por SMTP con Flask-Mail. Funciona en local; en la nube suele estar bloqueado."""
     if mail is None:
         logger.info("[correo simulado] Flask-Mail no esta instalado; para=%s", destinatario)
         return SIMULADO
 
+    # El From es la cuenta autenticada (ver config.py): Gmail lo reescribiria
+    # de todos modos. Solo el nombre visible es configurable.
+    remitente = (app.config.get("MAIL_SENDER_NAME", "AgendaSalud"),
+                 app.config["MAIL_USERNAME"])
+
     try:
         with app.app_context():
-            mensaje = Message(
+            mail.send(Message(
                 subject=asunto,
                 recipients=[destinatario],
                 body=cuerpo,
-                sender=app.config.get("MAIL_DEFAULT_SENDER") or app.config.get("MAIL_USERNAME"),
-            )
-            mail.send(mensaje)
+                sender=remitente,
+            ))
         logger.info("Correo enviado a %s (%s)", destinatario, asunto)
         return ENVIADO
-    except OSError as err:
-        # "Network is unreachable" al abrir el socket: el servidor no deja salir
-        # trafico SMTP. No es un problema de credenciales y no se arregla con
-        # configuracion; hay que enviar por HTTPS (BREVO_API_KEY).
+
+    # Ojo al orden: smtplib.SMTPException hereda de OSError, asi que si el
+    # `except OSError` fuera antes se tragaria los rechazos de Gmail y los
+    # explicaria como si fueran un puerto bloqueado.
+    except smtplib.SMTPAuthenticationError as err:
         logger.error(
-            "No se pudo abrir la conexion SMTP con %s:%s (%s). Si esto ocurre en la "
-            "nube, el proveedor bloquea el puerto: define BREVO_API_KEY para enviar por HTTPS.",
+            "Gmail rechazo las credenciales de %s (%s). MAIL_PASSWORD tiene que ser "
+            "una contrasena de aplicacion de 16 caracteres, no la contrasena normal, "
+            "y la cuenta necesita la verificacion en dos pasos activada.",
+            app.config.get("MAIL_USERNAME"), err,
+        )
+        return ERROR
+    except smtplib.SMTPException as err:
+        # Destinatario invalido, limite de envio diario, mensaje rechazado...
+        logger.error("Gmail rechazo el correo a %s: %s", destinatario, err)
+        return ERROR
+    except OSError as err:
+        # Aqui ya solo quedan los fallos de socket: "Network is unreachable" o un
+        # timeout al abrir la conexion. La maquina no deja salir trafico SMTP; no
+        # es un problema de credenciales y no se arregla con configuracion, porque
+        # el paquete no llega ni a salir. Es tipico de los planes gratuitos de
+        # PaaS, que bloquean los puertos 25, 465 y 587.
+        logger.error(
+            "No se pudo abrir la conexion SMTP con %s:%s (%s). Si ocurre en la nube, "
+            "el proveedor esta bloqueando el puerto de salida; en un plan gratuito "
+            "no hay forma de enviar por SMTP.",
             app.config.get("MAIL_SERVER"), app.config.get("MAIL_PORT"), err,
         )
         return ERROR
     except Exception:
-        # Un fallo de SMTP no puede tumbar la peticion que agendo la cita
         logger.exception("No se pudo enviar el correo a %s", destinatario)
         return ERROR
 
@@ -288,6 +254,75 @@ def enviar_recordatorio(cita, app=None, en_segundo_plano=True):
     if en_segundo_plano:
         return _enviar_en_segundo_plano(app, datos["email"], asunto, cuerpo)
     return _enviar(app, datos["email"], asunto, cuerpo)
+
+
+_PRUEBA = """Esto es un correo de prueba de AgendaSalud.
+
+Si lo estas leyendo, la cuenta de Gmail y la contrasena de aplicacion estan
+bien configuradas y los pacientes recibiran sus confirmaciones y recordatorios.
+
+    Servidor  : {servidor}:{puerto}
+    Remitente : {remitente}
+    Enviado   : {momento}
+
+--
+AgendaSalud
+Este es un mensaje automatico, no es necesario responderlo.
+"""
+
+
+def enviar_prueba(destinatario, app=None):
+    """
+    Manda un correo de prueba a la direccion indicada.
+
+    Existe para poder verificar las credenciales sin depender de que haya una
+    cita con un paciente con correo. Envia en primer plano (no en un hilo) para
+    que el resultado sea el de verdad y no un "enviado" optimista, y devuelve un
+    diccionario con el diagnostico en vez de solo el estado: cuando falla, lo
+    util es saber con que cuenta y contra que servidor se intento.
+
+    Uso desde la linea de comandos:
+
+        flask --app app probar-correo destino@ejemplo.com
+    """
+    app = app or current_app._get_current_object()
+    destinatario = (destinatario or "").strip()
+
+    diagnostico = {
+        "destinatario": destinatario,
+        "servidor": app.config.get("MAIL_SERVER"),
+        "puerto": app.config.get("MAIL_PORT"),
+        "remitente": app.config.get("MAIL_USERNAME"),
+        "notificaciones_activas": bool(app.config.get("NOTIFICACIONES_ACTIVAS")),
+        "flask_mail_instalado": mail is not None,
+    }
+
+    if not destinatario or "@" not in destinatario:
+        diagnostico["estado"] = ERROR
+        diagnostico["detalle"] = "Indica una direccion de correo valida."
+        return diagnostico
+
+    diagnostico["estado"] = _enviar(
+        app, destinatario,
+        "Prueba de configuracion de AgendaSalud",
+        _PRUEBA.format(
+            servidor=app.config.get("MAIL_SERVER"),
+            puerto=app.config.get("MAIL_PORT"),
+            remitente=app.config.get("MAIL_USERNAME") or "(sin configurar)",
+            momento=datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        ),
+    )
+
+    if diagnostico["estado"] == SIMULADO:
+        diagnostico["detalle"] = (
+            "No se envio nada: faltan MAIL_USERNAME y MAIL_PASSWORD "
+            "(o Flask-Mail no esta instalado). El correo solo se escribio en el log."
+        )
+    elif diagnostico["estado"] == ERROR:
+        diagnostico["detalle"] = "El envio fallo. El motivo exacto esta en el log del servidor."
+    else:
+        diagnostico["detalle"] = "Correo entregado al servidor de Gmail."
+    return diagnostico
 
 
 # --- Tarea diaria de recordatorios (APScheduler) ------------------------------

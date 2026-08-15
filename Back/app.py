@@ -236,6 +236,35 @@ def _registrar_cli(app):
         db.session.commit()
         print(f"\n{len(pares)} cita(s) canceladas. El historial se conserva.")
 
+    @app.cli.command("probar-correo")
+    @click.argument("destinatario")
+    def probar_correo(destinatario):
+        """Envia un correo de prueba a DESTINATARIO para verificar el SMTP de Gmail."""
+        import notifications
+
+        r = notifications.enviar_prueba(destinatario, app)
+
+        print(f"  Servidor    : {r['servidor']}:{r['puerto']}")
+        print(f"  Remitente   : {r['remitente'] or '(MAIL_USERNAME sin definir)'}")
+        print(f"  Destinatario: {r['destinatario']}")
+        print(f"  Resultado   : {r['estado']}")
+        print(f"  {r['detalle']}")
+
+        if r["estado"] != notifications.ENVIADO:
+            if not r["flask_mail_instalado"]:
+                print("\n  Falta Flask-Mail: pip install -r requirements.txt")
+            elif not r["notificaciones_activas"]:
+                print("\n  Define las dos variables y vuelve a probar:")
+                print("    MAIL_USERNAME=agendasaludcitas@gmail.com")
+                print("    MAIL_PASSWORD=<contrasena de aplicacion de 16 caracteres>")
+            else:
+                print("\n  El log de arriba dice el motivo exacto. Los dos habituales:")
+                print("    - 'rechazo las credenciales': MAIL_PASSWORD no es una contrasena")
+                print("      de aplicacion, o la cuenta no tiene 2FA activada.")
+                print("    - 'No se pudo abrir la conexion': la maquina bloquea el puerto")
+                print("      SMTP de salida. Es lo normal en los planes gratuitos de PaaS.")
+            raise SystemExit(1)
+
     @app.cli.command("recordatorios")
     def recordatorios_cmd():
         """Envia ahora los recordatorios de las citas de manana (sin esperar a la tarea diaria)."""

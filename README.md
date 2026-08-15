@@ -21,9 +21,9 @@ Toda la configuración sensible vive en variables de entorno: **ningún valor re
 |---|---|---|
 | `DATABASE_URL` | En producción | Conexión a PostgreSQL. Si falta, la app usa SQLite local |
 | `SECRET_KEY` | En producción | Firma las cookies de sesión |
-| `BREVO_API_KEY` | Para el correo en la nube | Envío por HTTPS (ver Notificaciones) |
-| `MAIL_DEFAULT_SENDER` | Con Brevo | Remitente verificado que ve el paciente |
-| `MAIL_USERNAME` / `MAIL_PASSWORD` | No | Gmail y contraseña de aplicación, para SMTP en local |
+| `MAIL_USERNAME` | Para enviar correo | Cuenta de Gmail que envía; es también el remitente |
+| `MAIL_PASSWORD` | Para enviar correo | Contraseña **de aplicación** de Gmail (16 caracteres) |
+| `MAIL_SENDER_NAME` | No | Nombre visible del remitente (`AgendaSalud` por defecto) |
 | `RECORDATORIO_HORA` / `RECORDATORIO_MINUTO` | No | Hora de la tarea diaria (18:00 por defecto) |
 | `RECORDATORIOS_ACTIVOS=0` | No | Desactiva la tarea programada |
 
@@ -125,18 +125,27 @@ Evolución pedida en la retroalimentación:
 
 ## Notificaciones automáticas (Gmail)
 
-Hay **dos vías de envío** y se usa la primera que esté configurada:
+El envío es **Flask-Mail sobre el SMTP de Gmail** (`smtp.gmail.com:587`, TLS), autenticado con las dos únicas variables que hacen falta:
 
-| Vía | Variables | Dónde sirve |
-|---|---|---|
-| **Brevo sobre HTTPS** | `BREVO_API_KEY` + `MAIL_DEFAULT_SENDER` | **La nube.** Puerto 443 |
-| **SMTP de Gmail** | `MAIL_USERNAME` + `MAIL_PASSWORD` | Local. Puerto 587 |
+| Variable | Valor |
+|---|---|
+| `MAIL_USERNAME` | La cuenta de Gmail, p. ej. `agendasaludcitas@gmail.com` |
+| `MAIL_PASSWORD` | Su **contraseña de aplicación** de 16 caracteres |
 
-> ⚠️ En la nube hay que usar Brevo. Los planes gratuitos de Render (y de la mayoría de PaaS) **bloquean las conexiones salientes a los puertos de SMTP**: el envío falla con `OSError: [Errno 101] Network is unreachable` al abrir el socket, aunque las credenciales de Gmail sean correctas. No se arregla con configuración, porque el paquete no llega a salir de la máquina.
+La contraseña de aplicación se genera en *myaccount.google.com → Seguridad → Contraseñas de aplicaciones* y requiere tener activada la verificación en dos pasos. **No es la contraseña normal de la cuenta**: con esa, Gmail responde `535 Username and Password not accepted`.
 
-- **Flask-Mail** sobre `smtp.gmail.com:587` con TLS para la vía SMTP, autenticado con una **contraseña de aplicación** de Gmail (requiere verificación en dos pasos), guardada en `MAIL_PASSWORD`.
-- La vía Brevo usa `urllib` de la biblioteca estándar: no añade dependencias.
-- `GET /api/salud` indica en `notificaciones` si hay alguna vía activa.
+El remitente es siempre `MAIL_USERNAME` y no se configura aparte, porque Gmail reescribe el `From` a la cuenta con la que te autenticaste; poner otra dirección solo daría la falsa impresión de que el correo sale de otro sitio. Lo único ajustable es el nombre visible, con `MAIL_SENDER_NAME`.
+
+**Probar la configuración** sin esperar a que haya una cita:
+
+```bash
+cd Back
+flask --app app probar-correo tu.correo@ejemplo.com
+```
+
+> ⚠️ Los planes gratuitos de Render (y de la mayoría de PaaS) **bloquean las conexiones salientes a los puertos de SMTP**. Si es el caso, el envío falla con `OSError: [Errno 101] Network is unreachable` al abrir el socket, aunque las credenciales sean correctas: el paquete no llega a salir de la máquina y no se arregla con configuración. En local funciona sin problema. Para la nube haría falta un plan de pago que permita SMTP saliente, o volver a una API de correo sobre HTTPS.
+
+- `GET /api/salud` indica en `notificaciones` si el correo está configurado.
 - **Correo de confirmación:** al crear o confirmar una cita.
 - **Recordatorio automático:** una tarea diaria con **APScheduler** (18:00 por defecto, ajustable con `RECORDATORIO_HORA`) busca las citas del día siguiente y envía un correo a cada paciente. Se puede lanzar a mano con `flask --app app recordatorios`.
 - **Prioridad por historial:** los recordatorios se recorren de mayor a menor tasa de ausentismo del paciente, de modo que quien más ha faltado se contacta primero.
