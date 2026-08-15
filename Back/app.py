@@ -8,7 +8,10 @@ http://127.0.0.1:5000 despues de `python app.py`.
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
+
+import click
 
 # Permite ejecutar `python app.py` desde cualquier carpeta
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -136,6 +139,39 @@ def _registrar_manejadores_error(app):
         })
 
 
+def _buscar_solapes():
+    """
+    Pares (conservar, sobra) de citas del mismo profesional que se pisan.
+
+    De cada par sobra la que menos cuesta anular: primero las que aun no se han
+    cerrado (pendiente antes que confirmada) y, en igualdad, la que se creo
+    despues. Una cita ya cerrada solo se marca como sobrante si la otra tambien
+    lo esta: son las que alimentan el indicador de ausentismo (RF6).
+    """
+    from models import Cita, ESTADOS_OCUPAN_AGENDA
+
+    # Cuanto mas alto, antes se descarta
+    PRIORIDAD_DESCARTE = {"pendiente": 3, "confirmada": 2, "no_asistio": 1, "atendida": 0}
+
+    citas = (Cita.query
+             .filter(Cita.estado.in_(ESTADOS_OCUPAN_AGENDA))
+             .order_by(Cita.profesional_id, Cita.inicio, Cita.id)
+             .all())
+
+    pares = []
+    for anterior, siguiente in zip(citas, citas[1:]):
+        if anterior.profesional_id != siguiente.profesional_id:
+            continue
+        if anterior.fin <= siguiente.inicio:      # contiguas, no solapadas
+            continue
+        peor = max(
+            (anterior, siguiente),
+            key=lambda c: (PRIORIDAD_DESCARTE.get(c.estado, 0), c.creada_en, c.id),
+        )
+        pares.append((siguiente if peor is anterior else anterior, peor))
+    return pares
+
+
 def _registrar_frontend(app):
     """Sirve Front/ como aplicacion de pagina unica."""
 
@@ -164,6 +200,41 @@ def _registrar_cli(app):
         """Carga datos de demostracion."""
         from seed import poblar
         poblar()
+
+    @app.cli.command("revisar-solapes")
+    @click.option("--cancelar", is_flag=True,
+                  help="Ademas de listarlas, cancela la cita sobrante de cada par.")
+    def revisar_solapes(cancelar):
+        """
+        Busca citas del mismo profesional pintadas una encima de otra.
+
+        Hasta ahora una inasistencia liberaba el hueco, asi que era posible
+        agendar sobre ella y el calendario acababa mostrando dos citas en la
+        misma casilla. La regla ya lo impide, pero los duplicados que se crearon
+        antes siguen en la base y hay que sacarlos a mano: son de dias pasados y
+        la API no deja tocar el historico.
+        """
+        pares = _buscar_solapes()
+        if not pares:
+            print("No hay citas solapadas.")
+            return
+
+        print(f"{len(pares)} par(es) de citas solapadas:\n")
+        for conservar, sobra in pares:
+            print(f"  {conservar.inicio:%Y-%m-%d %H:%M}  {conservar.profesional.nombre_completo}")
+            print(f"    se conserva  #{conservar.id:<4} {conservar.paciente.nombre_completo} ({conservar.estado})")
+            print(f"    sobra        #{sobra.id:<4} {sobra.paciente.nombre_completo} ({sobra.estado})")
+
+        if not cancelar:
+            print("\nEjecuta con --cancelar para cancelar las citas sobrantes.")
+            return
+
+        for _conservar, sobra in pares:
+            sobra.estado = "cancelada"
+            sobra.motivo_cancelacion = "Cancelada al depurar citas duplicadas en el mismo horario"
+            sobra.cerrada_en = datetime.now()
+        db.session.commit()
+        print(f"\n{len(pares)} cita(s) canceladas. El historial se conserva.")
 
     @app.cli.command("recordatorios")
     def recordatorios_cmd():

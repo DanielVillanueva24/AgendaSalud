@@ -46,12 +46,25 @@ const CalendarioUI = (() => {
       selectMirror: true,
       eventDurationEditable: true,
 
-      // Con el filtro en "Todos" coinciden hasta 3 citas a la misma hora (una por
-      // profesional). Por defecto FullCalendar las encabalga al 50 %; asi se
-      // reparten el ancho de la columna sin taparse.
+      // Un mismo profesional ya no puede tener dos citas a la misma hora (lo
+      // impide la API), pero con el filtro en "Todos" siguen coincidiendo citas
+      // de profesionales distintos. Por defecto FullCalendar las encabalga al
+      // 50 %, y entonces parece que una cita esta tapando a otra: con
+      // slotEventOverlap en false se reparten el ancho de la columna y cada una
+      // se lee entera.
       slotEventOverlap: false,
-      eventMaxStack: 3,
+      eventMaxStack: 4,
       moreLinkText: (n) => `+${n} más`,
+
+      // Al arrastrar: no se puede soltar una cita encima de otra del MISMO
+      // profesional. La API lo rechazaria igualmente, pero asi el arrastre se
+      // frena en el sitio en vez de ir y volver con un error.
+      eventOverlap: (fija, movida) => {
+        const a = fija.extendedProps;
+        const b = movida && movida.extendedProps;
+        if (!a || !b) return true;
+        return a.profesional_id !== b.profesional_id;
+      },
 
       events: cargarEventos,
 
@@ -176,11 +189,25 @@ const CalendarioUI = (() => {
     },
 
     montar() {
-      document.getElementById('filtro-profesional').addEventListener('change', () => {
-        aplicarHorarioVisible();
-        Vista.refrescar();
-      });
-      document.getElementById('filtro-estado').addEventListener('change', () => Vista.refrescar());
+      document.getElementById('filtro-profesional').addEventListener('change', alCambiarProfesional);
+      document.getElementById('filtro-estado').addEventListener('change', alCambiarEstado);
+    },
+
+    /**
+     * Al cerrar sesion. El calendario fija sus permisos (arrastrar, seleccionar)
+     * en el momento de construirse, asi que hay que tirarlo: si no, quien entre
+     * despues sigue viendo el calendario del usuario anterior, con sus permisos
+     * y sus citas todavia pintadas. Los listeners de los filtros se quedan: son
+     * de elementos permanentes de la pagina y montar() no vuelve a correr.
+     */
+    desmontar() {
+      if (calendario) {
+        calendario.destroy();
+        calendario = null;
+      }
+      document.getElementById('calendario').innerHTML = '';
+      document.getElementById('filtro-profesional').value = '';
+      document.getElementById('filtro-estado').value = '';
     },
 
     refrescar() {
@@ -194,6 +221,15 @@ const CalendarioUI = (() => {
       setTimeout(() => calendario && calendario.updateSize(), 30);
     },
   };
+
+  function alCambiarProfesional() {
+    aplicarHorarioVisible();
+    Vista.refrescar();
+  }
+
+  function alCambiarEstado() {
+    Vista.refrescar();
+  }
 
   /** Ajusta el rango horario visible y las horas laborables al profesional filtrado. */
   function aplicarHorarioVisible() {

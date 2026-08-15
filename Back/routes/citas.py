@@ -6,7 +6,7 @@ from flask import Blueprint, jsonify, request
 from extensions import db
 from models import (
     Cita, Paciente, Profesional,
-    ESTADOS_CITA, ESTADOS_BLOQUEANTES,
+    ESTADOS_CITA, ESTADOS_OCUPAN_AGENDA,
 )
 from security import login_requerido, rol_requerido, usuario_actual, alcance_profesional_id
 from utils import (
@@ -471,7 +471,7 @@ def actualizar(cid):
         cita.fin = cita.inicio + timedelta(minutes=parse_int(data["duracion_min"], "duracion_min"))
         reprogramada = True
 
-    if reprogramada and cita.estado in ESTADOS_BLOQUEANTES:
+    if reprogramada and cita.estado in ESTADOS_OCUPAN_AGENDA:
         _validar_intervalo(
             profesional, cita.paciente, cita.inicio, cita.fin,
             forzar=parse_bool(data.get("forzar")), excluir_cita_id=cita.id,
@@ -568,7 +568,7 @@ def _validar_intervalo(profesional, paciente, inicio, fin, forzar=False, excluir
     # El paciente tampoco puede estar en dos consultas a la vez
     choque_paciente = Cita.query.filter(
         Cita.paciente_id == paciente.id,
-        Cita.estado.in_(ESTADOS_BLOQUEANTES),
+        Cita.estado.in_(ESTADOS_OCUPAN_AGENDA),
         Cita.inicio < fin,
         Cita.fin > inicio,
     )
@@ -618,7 +618,7 @@ def _cambiar_estado(cita, nuevo, motivo_cancelacion=None):
         )
 
     # Reactivar una cita cancelada exige que el hueco siga libre
-    if cita.estado == "cancelada" and nuevo in ESTADOS_BLOQUEANTES:
+    if cita.estado == "cancelada" and nuevo in ESTADOS_OCUPAN_AGENDA:
         _validar_intervalo(cita.profesional, cita.paciente, cita.inicio, cita.fin,
                            forzar=True, excluir_cita_id=cita.id)
 

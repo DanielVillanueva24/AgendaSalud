@@ -124,6 +124,24 @@ class TestMotorOptimizacion(BaseTest):
         huecos = scheduler.huecos_libres(self.profesional, self.lunes)
         self.assertEqual(len(huecos), 1, "una cita cancelada debe liberar el hueco")
 
+    def test_una_inasistencia_sigue_ocupando_su_hueco(self):
+        """
+        Solo cancelar libera el horario. Si una inasistencia lo liberase, se
+        podria agendar encima y el calendario pintaria dos citas superpuestas
+        en la misma casilla.
+        """
+        self.crear_cita(hora=10, minuto=0, duracion=30, estado="no_asistio")
+        huecos = scheduler.huecos_libres(self.profesional, self.lunes)
+        self.assertEqual(
+            [(i.strftime("%H:%M"), f.strftime("%H:%M")) for i, f, _, _ in huecos],
+            [("09:00", "10:00"), ("10:30", "12:00")],
+        )
+
+        inicio = datetime.combine(self.lunes, time(10, 0))
+        r = scheduler.verificar_disponibilidad(self.profesional, inicio, inicio + timedelta(minutes=30))
+        self.assertFalse(r["disponible"])
+        self.assertEqual(len(r["conflictos"]), 1)
+
     def test_deteccion_de_solapamiento(self):
         self.crear_cita(hora=10, minuto=0, duracion=30)
         inicio = datetime.combine(self.lunes, time(10, 15))
@@ -211,6 +229,31 @@ class TestApiCitas(BaseTest):
         r = self.cliente.post("/api/citas", json=self._payload(hora=9, minuto=15))
         self.assertEqual(r.status_code, 409)
         self.assertEqual(r.get_json()["tipo"], "solapamiento")
+
+    def test_rechaza_agendar_sobre_una_inasistencia(self):
+        """
+        Recorrido completo del fallo real: se agenda, el paciente no aparece, se
+        registra la inasistencia y recepcion intenta meter a otro en ese hueco.
+        Antes se aceptaba y las dos citas quedaban dibujadas una encima de otra.
+        """
+        creada = self.cliente.post("/api/citas", json=self._payload()).get_json()
+        self.cliente.patch(f"/api/citas/{creada['id']}/estado", json={"estado": "no_asistio"})
+
+        r = self.cliente.post("/api/citas", json={
+            **self._payload(), "paciente_id": self.otro_paciente.id,
+        })
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json()["tipo"], "solapamiento")
+
+    def test_cancelar_si_libera_el_hueco(self):
+        """El contrapunto del test anterior: cancelar sigue devolviendo el horario."""
+        creada = self.cliente.post("/api/citas", json=self._payload()).get_json()
+        self.cliente.patch(f"/api/citas/{creada['id']}/estado", json={"estado": "cancelada"})
+
+        r = self.cliente.post("/api/citas", json={
+            **self._payload(), "paciente_id": self.otro_paciente.id,
+        })
+        self.assertEqual(r.status_code, 201)
 
     def test_rechaza_fuera_de_horario_pero_permite_forzar(self):
         r = self.cliente.post("/api/citas", json=self._payload(hora=20))

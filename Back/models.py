@@ -11,7 +11,14 @@ ROLES = ("admin", "recepcion", "profesional")
 
 ESTADOS_CITA = ("pendiente", "confirmada", "cancelada", "atendida", "no_asistio")
 
-# Estados que efectivamente ocupan un hueco en la agenda (RF4: deteccion de solapamiento)
+# Estados que reservan fisicamente el hueco en la agenda (RF4: deteccion de solapamiento).
+# Solo cancelar libera el horario. Una inasistencia NO lo libera: la cita sigue
+# ocupando esa casilla en el historico y, si se permitiera agendar encima, el
+# calendario acabaria pintando dos citas superpuestas en el mismo hueco.
+ESTADOS_OCUPAN_AGENDA = ("pendiente", "confirmada", "atendida", "no_asistio")
+
+# Estados que cuentan como tiempo clinico aprovechado (RF6: indicador de ocupacion).
+# Aqui si se excluye `no_asistio`: el hueco estaba reservado, pero no se uso.
 ESTADOS_BLOQUEANTES = ("pendiente", "confirmada", "atendida")
 
 # Estados que cuentan como "cita que debio ocurrir" (RF6: tasa de ausentismo)
@@ -233,7 +240,7 @@ class Cita(db.Model):
 
     @property
     def bloquea_agenda(self):
-        return self.estado in ESTADOS_BLOQUEANTES
+        return self.estado in ESTADOS_OCUPAN_AGENDA
 
     def to_dict(self):
         return {

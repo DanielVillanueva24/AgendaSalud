@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, time
 from sqlalchemy import and_, or_
 
 from extensions import db
-from models import Cita, Profesional, ESTADOS_BLOQUEANTES
+from models import Cita, Profesional, ESTADOS_OCUPAN_AGENDA
 
 # Pesos de la funcion de costo. La espera pesa poco por minuto para que un hueco
 # de hoy siempre gane a uno de manana, pero la fragmentacion desempata dentro del dia.
@@ -48,7 +48,7 @@ def citas_bloqueantes(profesional_id, desde: datetime, hasta: datetime, excluir_
     """Citas que ocupan agenda del profesional dentro del rango."""
     q = Cita.query.filter(
         Cita.profesional_id == profesional_id,
-        Cita.estado.in_(ESTADOS_BLOQUEANTES),
+        Cita.estado.in_(ESTADOS_OCUPAN_AGENDA),
         Cita.inicio < hasta,
         Cita.fin > desde,
     )
@@ -378,7 +378,7 @@ def _citas_del_dia(profesional, dia):
     inicio = datetime.combine(dia, time.min)
     return Cita.query.filter(
         Cita.profesional_id == profesional.id,
-        Cita.estado.in_(ESTADOS_BLOQUEANTES),
+        Cita.estado.in_(ESTADOS_OCUPAN_AGENDA),
         Cita.inicio >= inicio,
         Cita.inicio < inicio + timedelta(days=1),
     ).order_by(Cita.inicio).all()
@@ -394,7 +394,7 @@ def _compromisos_paciente(paciente_ids, dia, excluir_ids):
     inicio = datetime.combine(dia, time.min)
     q = Cita.query.filter(
         Cita.paciente_id.in_(list(paciente_ids)),
-        Cita.estado.in_(ESTADOS_BLOQUEANTES),
+        Cita.estado.in_(ESTADOS_OCUPAN_AGENDA),
         Cita.inicio >= inicio,
         Cita.inicio < inicio + timedelta(days=1),
     )
@@ -416,8 +416,9 @@ def proponer_reacomodo(profesional, dia, ahora=None, max_adelanto_min=MAX_ADELAN
     coloca cada una en el primer instante libre posible dentro de las franjas de
     atencion, sin invadir las citas fijas ni los compromisos del paciente.
 
-    Son FIJAS las citas ya atendidas, las que ya empezaron y las canceladas.
-    Son MOVIBLES las pendientes o confirmadas que todavia no han comenzado.
+    Son FIJAS las citas ya cerradas (atendidas o con inasistencia registrada) y
+    las que ya empezaron. Son MOVIBLES las pendientes o confirmadas que todavia
+    no han comenzado. Las canceladas no entran: su hueco ya esta libre.
 
     Restricciones de negocio (no son tecnicas, son del dominio):
 
@@ -587,7 +588,7 @@ def verificar_integridad_dia(profesional, dia):
         choque = Cita.query.filter(
             Cita.paciente_id == c.paciente_id,
             Cita.id != c.id,
-            Cita.estado.in_(ESTADOS_BLOQUEANTES),
+            Cita.estado.in_(ESTADOS_OCUPAN_AGENDA),
             Cita.inicio < c.fin,
             Cita.fin > c.inicio,
         ).first()
