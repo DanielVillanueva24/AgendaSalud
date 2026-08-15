@@ -288,11 +288,18 @@ def enviar_prueba(destinatario, app=None):
     app = app or current_app._get_current_object()
     destinatario = (destinatario or "").strip()
 
+    # La longitud de la contrasena es el dato que mas veces resuelve el problema:
+    # una de aplicacion son 16 caracteres exactos. Si salen 19, se copio con los
+    # espacios que muestra Google; si son muchos mas, es la contrasena normal de
+    # la cuenta, que el SMTP no acepta. Nunca se escribe su contenido.
+    clave = app.config.get("MAIL_PASSWORD") or ""
+
     diagnostico = {
         "destinatario": destinatario,
         "servidor": app.config.get("MAIL_SERVER"),
         "puerto": app.config.get("MAIL_PORT"),
         "remitente": app.config.get("MAIL_USERNAME"),
+        "password_caracteres": len(clave),
         "notificaciones_activas": bool(app.config.get("NOTIFICACIONES_ACTIVAS")),
         "flask_mail_instalado": mail is not None,
     }

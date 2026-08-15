@@ -136,11 +136,25 @@ La contraseña de aplicación se genera en *myaccount.google.com → Seguridad �
 
 El remitente es siempre `MAIL_USERNAME` y no se configura aparte, porque Gmail reescribe el `From` a la cuenta con la que te autenticaste; poner otra dirección solo daría la falsa impresión de que el correo sale de otro sitio. Lo único ajustable es el nombre visible, con `MAIL_SENDER_NAME`.
 
+En local basta con escribirlas una vez en un archivo `.env` en la raíz del proyecto (lo excluye `.gitignore`, nunca se sube). La contraseña se puede pegar **tal cual la da Google, con espacios**: se limpian solos, porque con ellos el SMTP responde `535` y parece que la contraseña está mal cuando es la correcta.
+
+```ini
+MAIL_USERNAME=agendasaludcitas@gmail.com
+MAIL_PASSWORD=abcd efgh ijkl mnop
+```
+
 **Probar la configuración** sin esperar a que haya una cita:
 
 ```bash
 cd Back
-flask --app app probar-correo tu.correo@ejemplo.com
+python -m flask --app app probar-correo tu.correo@ejemplo.com
+```
+
+El comando dice contra qué servidor fue, con qué remitente y cuántos caracteres tiene la contraseña (deben ser 16). Para descartar de una vez si el problema son las credenciales, se pueden pasar sueltas sin tocar nada más:
+
+```bash
+python -m flask --app app probar-correo tu.correo@ejemplo.com \
+  --usuario agendasaludcitas@gmail.com --password "abcd efgh ijkl mnop"
 ```
 
 > ⚠️ Los planes gratuitos de Render (y de la mayoría de PaaS) **bloquean las conexiones salientes a los puertos de SMTP**. Si es el caso, el envío falla con `OSError: [Errno 101] Network is unreachable` al abrir el socket, aunque las credenciales sean correctas: el paquete no llega a salir de la máquina y no se arregla con configuración. En local funciona sin problema. Para la nube haría falta un plan de pago que permita SMTP saliente, o volver a una API de correo sobre HTTPS.

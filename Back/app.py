@@ -238,14 +238,35 @@ def _registrar_cli(app):
 
     @app.cli.command("probar-correo")
     @click.argument("destinatario")
-    def probar_correo(destinatario):
+    @click.option("--usuario", help="Cuenta de Gmail (si no, se usa MAIL_USERNAME).")
+    @click.option("--password", help="Contrasena de aplicacion (si no, MAIL_PASSWORD). "
+                                     "Se admiten los espacios que pone Google.")
+    def probar_correo(destinatario, usuario, password):
         """Envia un correo de prueba a DESTINATARIO para verificar el SMTP de Gmail."""
         import notifications
 
+        # Permite probar sin tocar el entorno ni el .env: util para descartar de
+        # una vez si el problema son las credenciales o como se estan pasando.
+        if usuario:
+            app.config["MAIL_USERNAME"] = usuario.strip()
+            app.config["MAIL_DEFAULT_SENDER"] = usuario.strip()
+        if password:
+            app.config["MAIL_PASSWORD"] = "".join(password.split())
+        if usuario or password:
+            app.config["NOTIFICACIONES_ACTIVAS"] = bool(
+                app.config.get("MAIL_USERNAME") and app.config.get("MAIL_PASSWORD")
+            )
+            if notifications.mail is not None:
+                notifications.mail.init_app(app)  # relee la configuracion ya cambiada
+
         r = notifications.enviar_prueba(destinatario, app)
+
+        n = r["password_caracteres"]
+        pista = "correcto" if n == 16 else ("sin definir" if n == 0 else "deberian ser 16")
 
         print(f"  Servidor    : {r['servidor']}:{r['puerto']}")
         print(f"  Remitente   : {r['remitente'] or '(MAIL_USERNAME sin definir)'}")
+        print(f"  Password    : {n} caracteres ({pista})")
         print(f"  Destinatario: {r['destinatario']}")
         print(f"  Resultado   : {r['estado']}")
         print(f"  {r['detalle']}")

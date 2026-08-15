@@ -15,6 +15,32 @@ FRONT_DIR = BASE_DIR / "Front"
 DB_PATH = BASE_DIR / "agendasalud.db"
 
 
+def _cargar_env():
+    """
+    Lee el archivo .env de la raiz, si existe, antes que nada mas.
+
+    En local es la forma comoda de tener las credenciales: se escriben una vez
+    en .env (que .gitignore excluye) y valen para el servidor, para las pruebas
+    y para los comandos de consola, sin tener que exportar variables en cada
+    terminal ni recordar la sintaxis de PowerShell. En la nube no hay .env y
+    mandan las variables del propio servicio.
+
+    Lo que ya venga en el entorno tiene prioridad: `override=False` evita que un
+    .env olvidado en el disco pise la configuracion real del despliegue.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:                       # pragma: no cover
+        return                                # sin el paquete, solo variables de entorno
+
+    for ruta in (BASE_DIR / ".env", Path(__file__).resolve().parent / ".env"):
+        if ruta.is_file():
+            load_dotenv(ruta, override=False)
+
+
+_cargar_env()
+
+
 def _bandera(nombre, defecto="1"):
     return os.environ.get(nombre, defecto).strip().lower() not in ("0", "false", "no", "")
 
@@ -115,8 +141,15 @@ class Config:
     MAIL_PORT = int(os.environ.get("MAIL_PORT", "587"))
     MAIL_USE_TLS = True
     MAIL_USE_SSL = False
-    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
-    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_USERNAME = (os.environ.get("MAIL_USERNAME") or "").strip() or None
+
+    # Google muestra la contrasena de aplicacion en cuatro bloques separados por
+    # espacios ("abcd efgh ijkl mnop") y al copiarla se pegan tal cual, pero el
+    # SMTP la quiere de corrido: con espacios responde 535 y parece que la
+    # contrasena esta mal cuando en realidad es la correcta. Se limpian aqui
+    # todos los espacios (normales y no separables, que es lo que copia el
+    # navegador) en vez de exigir que el usuario acierte con el formato.
+    MAIL_PASSWORD = "".join((os.environ.get("MAIL_PASSWORD") or "").split()) or None
 
     # El remitente es siempre la cuenta autenticada. No se deja configurar
     # aparte porque Gmail reescribe el From al usuario con el que se autentico:
